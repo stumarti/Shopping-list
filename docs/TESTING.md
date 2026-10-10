@@ -64,7 +64,17 @@ Tick each box as you go. ⚠️ marks the things most likely to need a fix.
       Stores may block automated browsers; if so, say which store
 - [ ] Set `DUNNES_SEARCH_URL` to your own branch's search URL (see `.env.example`) and check again
 
-## 8. Local AI (optional)
+## 8. Online ordering (once the store adapters are finished)
+
+- [ ] **Shop online** → *Link Tesco account* → sign in through the live view. Tap fields, type in the box underneath, then **Done**
+- [ ] ⚠️ Without a booked slot, the store card says to book one in the store's app
+- [ ] Book a slot in the Tesco app → *Check again*: the slot shows
+- [ ] **Fill my Tesco basket**: exact matches are found, and items without one ask you to choose
+- [ ] Choose, skip and search again on a few items, change a quantity, then **Add to basket**
+- [ ] ⚠️ Open the Tesco app: the basket has exactly those products and quantities
+- [ ] Your partner links their own account; their order goes to their basket, not yours
+
+## 9. Local AI (optional)
 
 - [ ] Install [Ollama](https://ollama.com) on the PC or Mac mini and pull a vision model
 - [ ] Set `OLLAMA_URL`, `OLLAMA_MODEL` and `AI_BACKEND=ollama` (or `ollama-then-claude`), then restart the server

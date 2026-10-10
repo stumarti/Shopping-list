@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { FetchFn } from "../products.js";
 import type { Section } from "../sections.js";
-import { identifyTask, offerTask, parseTask } from "./prompts.js";
-import { NotUnderstoodError, type Assistant, type ImageMediaType, type WantedItem } from "./types.js";
+import { classifyTask, identifyTask, offerTask, parseTask } from "./prompts.js";
+import { NotUnderstoodError, type Assistant, type ImageMediaType, type StoreProduct, type WantedItem } from "./types.js";
 
 /**
  * A model running locally under Ollama (e.g. on the Mac mini or the Windows PC).
@@ -63,6 +63,11 @@ export class OllamaAssistant implements Assistant {
 
   matchOffer(item: WantedItem, store: string, pageText: string) {
     const t = offerTask(item, store, pageText);
+    return this.run(t.schema, t.system, t.prompt);
+  }
+
+  classify(item: WantedItem, candidates: StoreProduct[]) {
+    const t = classifyTask(item, candidates);
     return this.run(t.schema, t.system, t.prompt);
   }
 }

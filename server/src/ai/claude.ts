@@ -2,8 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { z } from "zod";
 import type { Section } from "../sections.js";
-import { identifyTask, offerTask, parseTask } from "./prompts.js";
-import { NotUnderstoodError, type Assistant, type ImageMediaType, type WantedItem } from "./types.js";
+import { classifyTask, identifyTask, offerTask, parseTask } from "./prompts.js";
+import { NotUnderstoodError, type Assistant, type ImageMediaType, type StoreProduct, type WantedItem } from "./types.js";
 
 export class ClaudeAssistant implements Assistant {
   readonly name = "Claude";
@@ -48,5 +48,10 @@ export class ClaudeAssistant implements Assistant {
   matchOffer(item: WantedItem, store: string, pageText: string) {
     const t = offerTask(item, store, pageText);
     return this.run(this.priceModel, t.schema, t.system, [{ type: "text", text: t.prompt }]);
+  }
+
+  classify(item: WantedItem, candidates: StoreProduct[]) {
+    const t = classifyTask(item, candidates);
+    return this.run(this.model, t.schema, t.system, [{ type: "text", text: t.prompt }]);
   }
 }

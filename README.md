@@ -11,7 +11,7 @@ A shared grocery list for two iPhones (and an iPad), synced through a small serv
 ```
 apps/mobile   Expo (React Native) app for iPhone/iPad
 server        Node + SQLite API: sync, barcode lookup (Open Food Facts), AI (Claude and/or a local model), price checks
-worker        Optional: Playwright browser that reads Tesco/Dunnes search pages for price checks
+worker        Optional: Playwright browser for price checks and for filling your Tesco/Dunnes basket
 ```
 
 Once it's running, work through [docs/TESTING.md](docs/TESTING.md) on your phones.
@@ -63,6 +63,18 @@ Things to know:
 - **Cost**: each item at each store is one AI call over a few thousand characters of page text. Set `CLAUDE_PRICE_MODEL=claude-haiku-4-5` to use a cheaper model just for this, or use a local model.
 - **Fragility**: stores change their sites and may block automated browsers. Because the AI reads the page text rather than relying on page layout, small redesigns shouldn't break it, but a block will. You'll see *Couldn't load the store page* and errors in `docker compose logs worker`.
 - **Terms of use**: both stores' terms restrict automated access. This is light, personal, read-only use, but it's your call.
+
+### Optional: fill your online basket (delivery or click & collect)
+
+From the store icon on the list: **Shop online** → pick Tesco or Dunnes.
+
+1. **Link your account once.** The app shows the server's browser on the store's sign-in page. You sign in yourself, including any code the store sends you. The server keeps that browser session for you; it never stores your password. Everyone links their own account.
+2. **Book a slot in the store's app** as usual. The app reads your account and won't fill the basket until it sees a booked slot.
+3. **Matching.** Each item still to buy is searched for. Exact matches (same product, brand and size) go straight in.
+4. **Choose substitutes** for anything without an exact match, from the closest few, or search again or skip.
+5. **Add to basket.** The server adds everything with quantities to your real basket and reports anything it couldn't add. You then **check out in the store's app**. This app never checks out or pays.
+
+This uses the same worker as price checks (`docker compose --profile prices up -d`). **Status:** the whole flow is built and tested against a pretend store, but the Tesco and Dunnes parts are still to be written against the live sites. See [docs/STORE-AUTOMATION.md](docs/STORE-AUTOMATION.md). To try the flow with the pretend store, run `cd worker && npx tsx test/fixtures/test-store.ts` and set `TEST_STORE_URL=http://<that machine>:8099` for the worker (password `correct-horse`).
 
 ## 2. Run the app (from Windows)
 
@@ -138,6 +150,11 @@ All `/api/*` routes except health, setup and join require `Authorization: Bearer
 | `POST /api/trips`, `POST /api/trips/:id/finish` | Start / finish a shopping trip |
 | `GET /api/lists/:id/history` | Past trips and what was bought |
 | `GET /api/lists/:id/suggestions` | Usual items that are due and not on the list |
+| `GET /api/online/stores`, `GET /api/online/:store/status` | Stores you can order from; is your account linked, and which slot is booked |
+| `POST /api/online/:store/link`, `GET …/link/screenshot`, `POST …/link/input`, `POST …/link/done` | Live sign-in view for linking your store account |
+| `POST /api/orders` | `{listId, store}` → checks the slot, then matches every item in the background |
+| `GET /api/orders/:id`, `PATCH /api/orders/:id/lines/:itemId` | Review an order; `{choose}`, `{skip}`, `{qty}` or `{search}` per item |
+| `POST /api/orders/:id/fill` | Add everything to your store basket |
 | `POST /api/lists/:id/price-check` | Start a read-only Tesco/Dunnes price check (runs in the background) |
 | `GET /api/lists/:id/price-check`, `GET /api/price-checks/:id` | Latest / specific price check with progress and results |
 | `GET /api/barcode/:code` | Local cache, then Open Food Facts |
@@ -149,5 +166,5 @@ The model defaults to `claude-opus-5-5` (override with `CLAUDE_MODEL`) at low ef
 
 ## Roadmap
 
-- Filling a Tesco/Dunnes basket from the list (stops before checkout)
+- Tesco and Dunnes adapters for online ordering (see docs/STORE-AUTOMATION.md)
 - Push notifications when your partner adds items or starts shopping (the "who's shopping" data is already there; this needs Apple push setup)

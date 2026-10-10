@@ -47,6 +47,15 @@ export class LocalFirstAssistant implements Assistant {
     }
     return this.cloud.matchOffer(...args);
   }
+
+  async classify(...args: Parameters<Assistant["classify"]>) {
+    try {
+      return await this.local.classify(...args);
+    } catch (err) {
+      console.warn("local model failed, asking Claude", err);
+      return this.cloud.classify(...args);
+    }
+  }
 }
 
 export type AiBackend = "claude" | "ollama" | "ollama-then-claude" | "none";

@@ -191,11 +191,11 @@ describe("upgrading an existing database", () => {
     old.close();
 
     const db = openDb(file);
-    expect(db.pragma("user_version", { simple: true })).toBe(3);
+    expect(db.pragma("user_version", { simple: true })).toBe(4);
     db.prepare("INSERT INTO users (id, name, created_at) VALUES ('u', 'Sam', 0)").run();
     const state = getState(db, "u");
     expect(state.items).toMatchObject([{ id: "old", listId: "household", addedBy: "Sam" }]);
     db.close();
-    expect(openDb(file).pragma("user_version", { simple: true })).toBe(3); // re-opening is a no-op
+    expect(openDb(file).pragma("user_version", { simple: true })).toBe(4); // re-opening is a no-op
   });
 });

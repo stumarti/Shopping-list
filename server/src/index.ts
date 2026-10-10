@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import { createAssistant } from "./ai/index.js";
 import { createApp } from "./app.js";
 import { openDb } from "./db.js";
+import { HttpStoreWorker } from "./ordering.js";
 import { HttpPriceWorker } from "./pricing.js";
 
 const dbFile = process.env.DB_FILE || "./data/shopping.db";
@@ -18,7 +19,9 @@ console.log(assistant ? `AI: ${assistant.name}` : "AI: none (photo identificatio
 const priceWorker = process.env.WORKER_URL ? new HttpPriceWorker(process.env.WORKER_URL, process.env.WORKER_TOKEN) : undefined;
 if (priceWorker && !assistant) console.warn("WORKER_URL is set but no AI is configured: price checks need one to read store pages.");
 
-const app = createApp({ db: openDb(dbFile), setupToken, assistant, aiBackend: backend, priceWorker });
+const storeWorker = process.env.WORKER_URL ? new HttpStoreWorker(process.env.WORKER_URL, process.env.WORKER_TOKEN) : undefined;
+
+const app = createApp({ db: openDb(dbFile), setupToken, assistant, aiBackend: backend, priceWorker, storeWorker });
 const port = Number(process.env.PORT || 8787);
 
 serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => {

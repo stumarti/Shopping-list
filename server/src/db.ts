@@ -129,6 +129,39 @@ const MIGRATIONS: Array<(db: DB) => void> = [
       CREATE INDEX price_checks_list ON price_checks(list_id, started_at);
     `);
   },
+  // v4: online orders (basket filling), one per person per store run
+  (db) => {
+    db.exec(`
+      CREATE TABLE orders (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        list_id TEXT NOT NULL,
+        store TEXT NOT NULL,
+        status TEXT NOT NULL,
+        slot_kind TEXT NOT NULL,
+        slot_label TEXT NOT NULL,
+        basket_url TEXT NOT NULL,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX orders_user_list ON orders(user_id, list_id, created_at);
+      CREATE TABLE order_lines (
+        order_id TEXT NOT NULL REFERENCES orders(id),
+        item_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        brand TEXT,
+        size TEXT,
+        qty INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        chosen_json TEXT,
+        options_json TEXT,
+        error TEXT,
+        PRIMARY KEY (order_id, item_id)
+      );
+    `);
+  },
 ];
 
 export function openDb(file: string): DB {

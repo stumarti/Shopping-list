@@ -36,8 +36,8 @@ jobs:
           cache: npm
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
-        env:
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      # The ordering tests drive a real Chromium against the pretend store.
+      - run: npx playwright install --with-deps chromium
       - run: npm run typecheck
       - run: npm test
 

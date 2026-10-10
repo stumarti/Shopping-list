@@ -34,7 +34,7 @@ describe("OllamaAssistant", () => {
 });
 
 describe("LocalFirstAssistant", () => {
-  const make = (identify: Assistant["identifyPhoto"]): Assistant => ({ name: "x", identifyPhoto: identify, parseText: vi.fn(), matchOffer: vi.fn() });
+  const make = (identify: Assistant["identifyPhoto"]): Assistant => ({ name: "x", identifyPhoto: identify, parseText: vi.fn(), matchOffer: vi.fn(), classify: vi.fn() });
   const sure = { name: "Milk", brand: null, size: null, sectionId: "dairy", confidence: "high" as const };
 
   it("keeps the local answer when it's confident", async () => {

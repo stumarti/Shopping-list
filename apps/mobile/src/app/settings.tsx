@@ -222,6 +222,10 @@ export default function SettingsScreen() {
             <Text style={styles.kvVal}>{health ? (health.priceCheck ? "On" : "Off") : "–"}</Text>
           </View>
           <View style={[styles.kv, styles.border]}>
+            <Text style={styles.kvKey}>Online ordering</Text>
+            <Text style={styles.kvVal}>{health ? (health.onlineOrdering ? "On" : "Off") : "–"}</Text>
+          </View>
+          <View style={[styles.kv, styles.border]}>
             <Text style={styles.kvKey}>Server version</Text>
             <Text style={styles.kvVal}>{health?.version ?? "–"}</Text>
           </View>

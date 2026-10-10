@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createWorkerApp } from "../src/app.js";
 import { PoliteQueue } from "../src/limiter.js";
-import { buildSearchUrl, cleanPageText, DEFAULT_SEARCH_URLS, searchUrls } from "../src/stores.js";
+import { buildSearchUrl, cleanPageText, DEFAULT_SEARCH_URLS, searchUrls } from "../src/stores/search-urls.js";
 
 describe("stores", () => {
   it("builds encoded search URLs and honours overrides", () => {

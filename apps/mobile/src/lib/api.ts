@@ -94,6 +94,7 @@ export interface Health {
   version?: string;
   ai?: { backend: string; name: string } | null;
   priceCheck?: boolean;
+  onlineOrdering?: boolean;
   stores?: Array<{ id: string; name: string }>;
 }
 
@@ -129,6 +130,60 @@ export interface PriceCheck {
   progress: { done: number; total: number };
 }
 
+export interface OnlineStore {
+  id: string;
+  name: string;
+  ordering: boolean;
+  basketUrl: string;
+}
+
+export interface Slot {
+  kind: "delivery" | "collect";
+  label: string;
+}
+
+export interface StoreProduct {
+  ref: string;
+  name: string;
+  size: string | null;
+  price: number | null;
+  memberPrice: number | null;
+  available: boolean;
+}
+
+export type LineStatus = "pending" | "exact" | "choose" | "chosen" | "not_found" | "skipped" | "added" | "failed";
+
+export interface OrderLine {
+  itemId: string;
+  name: string;
+  brand: string | null;
+  size: string | null;
+  qty: number;
+  status: LineStatus;
+  chosen: StoreProduct | null;
+  options: StoreProduct[];
+  error: string | null;
+}
+
+export interface Order {
+  id: string;
+  listId: string;
+  store: string;
+  status: "matching" | "review" | "filling" | "done" | "failed";
+  slot: Slot;
+  basketUrl: string;
+  error: string | null;
+  createdAt: number;
+  lines: OrderLine[];
+}
+
+export type RemoteInput =
+  | { type: "click"; x: number; y: number }
+  | { type: "type"; text: string }
+  | { type: "key"; key: "Enter" | "Tab" | "Backspace" | "Escape" }
+  | { type: "scroll"; dy: number }
+  | { type: "back" };
+
 export function baseUrl(serverUrl: string): string {
   const trimmed = serverUrl.trim().replace(/\/+$/, "");
   return /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`;
@@ -136,6 +191,15 @@ export function baseUrl(serverUrl: string): string {
 
 export function deviceName(): string {
   return Constants.deviceName ?? "Phone";
+}
+
+export class ConflictError extends ApiError {
+  constructor(
+    message: string,
+    public code: string | undefined,
+  ) {
+    super(409, message);
+  }
 }
 
 async function request<T>(conn: Connection, path: string, init: RequestInit = {}, timeoutMs = 10000): Promise<T> {
@@ -154,7 +218,8 @@ async function request<T>(conn: Connection, path: string, init: RequestInit = {}
   } finally {
     clearTimeout(timer);
   }
-  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+  if (res.status === 409) throw new ConflictError(body.error ?? "Conflict", body.code);
   if (!res.ok) throw new ApiError(res.status, body.error ?? `Server error ${res.status}`);
   return body as T;
 }
@@ -187,6 +252,28 @@ export const api = {
   latestPriceCheck: (c: Connection, listId: string) =>
     request<{ check: PriceCheck | null }>(c, `/api/lists/${encodeURIComponent(listId)}/price-check`),
   priceCheck: (c: Connection, id: string) => request<{ check: PriceCheck }>(c, `/api/price-checks/${encodeURIComponent(id)}`),
+
+  onlineStores: (c: Connection) => request<{ stores: OnlineStore[] }>(c, "/api/online/stores"),
+  onlineStatus: (c: Connection, store: string) => request<{ signedIn: boolean; slot: Slot | null }>(c, `/api/online/${store}/status`, {}, 60000),
+  linkStart: (c: Connection, store: string) => request<{ view: { width: number; height: number } }>(c, `/api/online/${store}/link`, post(), 60000),
+  linkInput: (c: Connection, store: string, event: RemoteInput) => request<{ ok: true }>(c, `/api/online/${store}/link/input`, post(event), 30000),
+  linkDone: (c: Connection, store: string) => request<{ signedIn: boolean; slot: Slot | null }>(c, `/api/online/${store}/link/done`, post(), 60000),
+  /** The live sign-in view as a data: URI, ready for <Image>. */
+  async linkScreenshot(c: Connection, store: string): Promise<string> {
+    const res = await fetch(`${baseUrl(c.serverUrl)}/api/online/${store}/link/screenshot`, { headers: { authorization: `Bearer ${c.token}` } });
+    if (!res.ok) throw new ApiError(res.status, "No picture from the store yet");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return `data:image/jpeg;base64,${btoa(bin)}`;
+  },
+
+  startOrder: (c: Connection, listId: string, store: string) => request<{ id: string }>(c, "/api/orders", post({ listId, store }), 60000),
+  order: (c: Connection, id: string) => request<{ order: Order }>(c, `/api/orders/${encodeURIComponent(id)}`),
+  latestOrder: (c: Connection, listId: string) => request<{ order: Order | null }>(c, `/api/orders?listId=${encodeURIComponent(listId)}`),
+  changeLine: (c: Connection, id: string, itemId: string, change: { choose: string } | { skip: true } | { qty: number } | { search: string }) =>
+    request<{ order: Order }>(c, `/api/orders/${encodeURIComponent(id)}/lines/${encodeURIComponent(itemId)}`, { method: "PATCH", body: JSON.stringify(change) }, 60000),
+  fillBasket: (c: Connection, id: string) => request<{ ok: true }>(c, `/api/orders/${encodeURIComponent(id)}/fill`, post()),
 
   barcode: (c: Connection, code: string) => request<{ found: boolean; product?: Product }>(c, `/api/barcode/${encodeURIComponent(code)}`),
   rememberBarcode: (c: Connection, code: string, p: Omit<Product, "barcode">) =>
