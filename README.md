@@ -10,7 +10,7 @@ A shared grocery list for two iPhones (and an iPad), synced through a small serv
 
 ```
 apps/mobile   Expo (React Native) app for iPhone/iPad
-server        Node + SQLite API: sync, barcode lookup (Open Food Facts), AI (Claude and/or a local model), price checks
+server        Node + SQLite API: sync, barcode lookup (Open Food / Beauty / Products / Pet Food Facts), AI (Claude and/or a local model), price checks
 worker        Optional: Playwright browser for price checks and for filling your Tesco/Dunnes basket
 ```
 

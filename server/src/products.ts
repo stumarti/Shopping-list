@@ -7,7 +7,7 @@ export interface Product {
   brand: string | null;
   size: string | null;
   sectionId: string;
-  source: "openfoodfacts" | "photo" | "manual";
+  source: OpenFactsSource | "photo" | "manual";
 }
 
 export type FetchFn = typeof fetch;
@@ -36,13 +36,26 @@ export function rememberProduct(db: DB, p: Product): void {
   `).run({ ...p, at: Date.now() });
 }
 
-export async function lookupOpenFoodFacts(barcode: string, fetchFn: FetchFn = fetch): Promise<Product | null> {
+/**
+ * The Open Food Facts family: one free, open database per kind of product, all with the same API.
+ * Searched in order, so food (by far the most common scan) is tried first.
+ */
+export const OPEN_FACTS = [
+  { source: "openfoodfacts", host: "world.openfoodfacts.org", section: null },
+  { source: "openbeautyfacts", host: "world.openbeautyfacts.org", section: "health" },
+  { source: "openproductsfacts", host: "world.openproductsfacts.org", section: "household" },
+  { source: "openpetfoodfacts", host: "world.openpetfoodfacts.org", section: "other" },
+] as const;
+
+export type OpenFactsSource = (typeof OPEN_FACTS)[number]["source"];
+
+async function lookupOne(db: (typeof OPEN_FACTS)[number], barcode: string, fetchFn: FetchFn): Promise<Product | null> {
   const url =
-    `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json` +
+    `https://${db.host}/api/v2/product/${encodeURIComponent(barcode)}.json` +
     `?fields=product_name,product_name_en,generic_name,brands,quantity,categories_tags`;
   const res = await fetchFn(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(8000) });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Open Food Facts returned ${res.status}`);
+  if (!res.ok) throw new Error(`${db.host} returned ${res.status}`);
   const body = (await res.json()) as {
     status?: number;
     product?: {
@@ -62,16 +75,31 @@ export async function lookupOpenFoodFacts(barcode: string, fetchFn: FetchFn = fe
     name,
     brand: p.brands?.split(",")[0]?.trim() || null,
     size: p.quantity?.trim() || null,
-    sectionId: sectionFromOffTags(p.categories_tags) ?? categorize(name),
-    source: "openfoodfacts",
+    sectionId: db.section ?? sectionFromOffTags(p.categories_tags) ?? categorize(name),
+    source: db.source,
   };
 }
 
-/** Local cache first (includes barcodes you identified by photo), then Open Food Facts. */
+/** Tries each Open Facts database in turn. Fails only if none answered and one was unreachable. */
+export async function lookupOpenFacts(barcode: string, fetchFn: FetchFn = fetch): Promise<Product | null> {
+  let failure: unknown = null;
+  for (const db of OPEN_FACTS) {
+    try {
+      const found = await lookupOne(db, barcode, fetchFn);
+      if (found) return found;
+    } catch (err) {
+      failure ??= err;
+    }
+  }
+  if (failure) throw failure;
+  return null;
+}
+
+/** Local cache first (includes barcodes you identified by photo), then the Open Facts databases. */
 export async function lookupBarcode(db: DB, barcode: string, fetchFn: FetchFn = fetch): Promise<Product | null> {
   const cached = getCachedProduct(db, barcode);
   if (cached) return cached;
-  const found = await lookupOpenFoodFacts(barcode, fetchFn);
+  const found = await lookupOpenFacts(barcode, fetchFn);
   if (found) rememberProduct(db, found);
   return found;
 }

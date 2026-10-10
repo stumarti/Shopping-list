@@ -123,3 +123,29 @@ describe("parseTextLocally", () => {
     expect(parseTextLocally("3x yoghurt")[0]).toMatchObject({ name: "Yoghurt", qty: 3, sectionId: "dairy" });
   });
 });
+
+describe("non-food barcodes", () => {
+  it("falls through to Open Beauty / Products / Pet Food Facts and files them in the right aisle", async () => {
+    const hosts: string[] = [];
+    const fetchFn = vi.fn(async (url: string | URL | Request) => {
+      const host = new URL(String(url)).host;
+      hosts.push(host);
+      if (host === "world.openproductsfacts.org") {
+        return new Response(JSON.stringify({ status: 1, product: { product_name: "Fairy Original Washing Up Liquid", brands: "Fairy", quantity: "433 ml" } }));
+      }
+      return new Response(JSON.stringify({ status: 0 }), { status: 404 });
+    });
+    const { call } = await setup({ fetchFn: fetchFn as unknown as typeof fetch });
+    const body = await (await call("/api/barcode/8001090000000")).json();
+    expect(body.product).toMatchObject({ name: "Fairy Original Washing Up Liquid", sectionId: "household", source: "openproductsfacts" });
+    expect(hosts).toEqual(["world.openfoodfacts.org", "world.openbeautyfacts.org", "world.openproductsfacts.org"]);
+  });
+
+  it("reports the lookup as unavailable only when nothing was found and a database was unreachable", async () => {
+    const fetchFn = vi.fn(async (url: string | URL | Request) =>
+      String(url).includes("openfoodfacts") ? new Response("down", { status: 503 }) : new Response(JSON.stringify({ status: 0 })),
+    );
+    const { call } = await setup({ fetchFn: fetchFn as unknown as typeof fetch });
+    expect((await call("/api/barcode/12345670")).status).toBe(502);
+  });
+});
