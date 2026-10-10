@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Shopping",
+    "slug": "shopping-list",
+    "scheme": "shoppinglist",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.shoppinglist",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "Shopping syncs your list with the server on your home network."
+      }
+    },
+    "android": {
+      "package": "com.example.shoppinglist",
+      "adaptiveIcon": {
+        "backgroundColor": "#E3EFE7",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Shopping uses the camera to scan barcodes and photograph products to add them to your list.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ]
+    ]
+  }
+}
