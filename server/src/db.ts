@@ -106,6 +106,29 @@ const MIGRATIONS: Array<(db: DB) => void> = [
       CREATE INDEX purchases_trip ON purchases(trip_id);
     `);
   },
+  // v3: read-only price comparison between stores
+  (db) => {
+    db.exec(`
+      CREATE TABLE price_cache (
+        store TEXT NOT NULL,
+        query TEXT NOT NULL,
+        match_json TEXT NOT NULL,
+        fetched_at INTEGER NOT NULL,
+        PRIMARY KEY (store, query)
+      );
+      CREATE TABLE price_checks (
+        id TEXT PRIMARY KEY,
+        list_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        finished_at INTEGER,
+        result TEXT NOT NULL,
+        error TEXT
+      );
+      CREATE INDEX price_checks_list ON price_checks(list_id, started_at);
+    `);
+  },
 ];
 
 export function openDb(file: string): DB {

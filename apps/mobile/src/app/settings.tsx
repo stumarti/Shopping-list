@@ -4,7 +4,8 @@ import { useCallback, useState } from "react";
 import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Card, Icon, Label, s as ui } from "../components/ui";
-import { api, ApiError, type Person } from "../lib/api";
+import Constants from "expo-constants";
+import { api, ApiError, type Health, type Person } from "../lib/api";
 import { useStore } from "../lib/store";
 import { avatarColor, colors, initial, radius } from "../lib/theme";
 
@@ -35,6 +36,7 @@ export default function SettingsScreen() {
   const waiting = useStore((st) => st.outbox.length);
 
   const [people, setPeople] = useState<Person[] | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
   const [name, setName] = useState(user?.name ?? "");
 
   const loadPeople = useCallback(() => {
@@ -45,6 +47,10 @@ export default function SettingsScreen() {
         useStore.setState({ user: r.user });
       })
       .catch(() => setPeople(null));
+    api
+      .health(useStore.getState().connection())
+      .then(setHealth)
+      .catch(() => setHealth(null));
   }, []);
   useFocusEffect(loadPeople);
 
@@ -85,6 +91,19 @@ export default function SettingsScreen() {
     } catch {
       Alert.alert("Couldn't save your name", "Try again when you're connected to the home server.");
     }
+  }
+
+  // Everything useful for a bug report in one block, without the token.
+  async function shareDiagnostics() {
+    const s = useStore.getState();
+    const lines = [
+      `App ${Constants.expoConfig?.version ?? "?"} · ${Constants.deviceName ?? "device"}`,
+      `Server ${serverUrl || "not set"} · version ${health?.version ?? "unreachable"}`,
+      `Status ${s.status} · last sync ${s.lastSyncAt ? new Date(s.lastSyncAt).toISOString() : "never"} · ${s.outbox.length} waiting`,
+      `AI ${health?.ai?.name ?? "off"} · price checks ${health?.priceCheck ? "on" : "off"}`,
+      `Signed in as ${user?.name ?? "?"} · ${s.lists.length} lists · ${s.items.length} items`,
+    ];
+    await Share.share({ message: lines.join("\n") });
   }
 
   function signOut() {
@@ -189,6 +208,28 @@ export default function SettingsScreen() {
         <Text style={[styles.small, { paddingHorizontal: 4 }]}>
           No connection? Changes are kept on this device and sent as soon as the home server is reachable again.
         </Text>
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <Text style={styles.h2}>Server features</Text>
+        <Card>
+          <View style={styles.kv}>
+            <Text style={styles.kvKey}>Photo identification</Text>
+            <Text style={styles.kvVal}>{health ? (health.ai?.name ?? "Off") : "–"}</Text>
+          </View>
+          <View style={[styles.kv, styles.border]}>
+            <Text style={styles.kvKey}>Price checks</Text>
+            <Text style={styles.kvVal}>{health ? (health.priceCheck ? "On" : "Off") : "–"}</Text>
+          </View>
+          <View style={[styles.kv, styles.border]}>
+            <Text style={styles.kvKey}>Server version</Text>
+            <Text style={styles.kvVal}>{health?.version ?? "–"}</Text>
+          </View>
+          <Pressable accessibilityRole="button" onPress={shareDiagnostics} style={[styles.person, styles.border]}>
+            <Icon name="bug-outline" color={colors.accent} size={20} />
+            <Text style={styles.inviteText}>Share diagnostics</Text>
+          </Pressable>
+        </Card>
       </View>
 
       <Button label="Sign out of this device" variant="danger" icon="log-out-outline" onPress={signOut} />

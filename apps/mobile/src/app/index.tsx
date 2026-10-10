@@ -150,6 +150,7 @@ export default function ListScreen() {
           </Pressable>
           <View style={{ flexDirection: "row", gap: 6 }}>
             <IconButton icon="swap-vertical" label="Change aisle order" onPress={() => router.push("/aisles")} />
+            <IconButton icon="pricetags-outline" label="Compare prices" onPress={() => router.push("/prices")} />
             <IconButton icon="people-outline" label="Sharing and sync" onPress={() => router.push("/settings")} />
           </View>
         </View>

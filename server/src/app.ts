@@ -3,8 +3,9 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { authenticate, createInvite, createUser, issueToken, listPeople, redeemInvite, revokeToken, revokeUser, type User } from "./auth.js";
-import { NotUnderstoodError, parseTextLocally, type Assistant } from "./claude.js";
+import { NotUnderstoodError, parseTextLocally, type AiBackend, type Assistant } from "./ai/index.js";
 import type { DB } from "./db.js";
+import { getPriceCheck, latestPriceCheck, startPriceCheck, STORES, type PriceWorker } from "./pricing.js";
 import { lookupBarcode, rememberProduct, type FetchFn } from "./products.js";
 import { categorize } from "./sections.js";
 import { applyOps, finishTrip, getState, OpSchema, startTrip, suggestions, tripHistory, visibleListIds } from "./sync.js";
@@ -14,8 +15,13 @@ export interface AppDeps {
   /** Setup secret from .env: lets a new phone create a person without an invite. Unset = open setup (local dev only). */
   setupToken?: string;
   assistant?: Assistant;
+  aiBackend?: AiBackend;
+  /** Playwright worker that loads store search pages; unset = price checks off. */
+  priceWorker?: PriceWorker;
   fetchFn?: FetchFn;
 }
+
+export const VERSION = "0.3.0";
 
 const BARCODE = /^\d{6,14}$/;
 
@@ -30,12 +36,23 @@ const json = async (req: { json(): Promise<unknown> }) => req.json().catch(() =>
 
 type Env = { Variables: { user: User; token: string } };
 
-export function createApp({ db, setupToken, assistant, fetchFn = fetch }: AppDeps) {
+export function createApp({ db, setupToken, assistant, aiBackend, priceWorker, fetchFn = fetch }: AppDeps) {
   const app = new Hono<Env>();
 
   // ---- Public: health, first-time setup, joining with an invite ----
 
-  app.get("/api/health", (c) => c.json({ ok: true, claude: Boolean(assistant) }));
+  // Also used by the app's Settings screen to show what this server can do.
+  app.get("/api/health", (c) =>
+    c.json({
+      ok: true,
+      version: VERSION,
+      ai: assistant ? { backend: aiBackend ?? "custom", name: assistant.name } : null,
+      priceCheck: Boolean(priceWorker && assistant),
+      stores: STORES,
+      // Kept for older app versions.
+      claude: Boolean(assistant),
+    }),
+  );
 
   const Device = z.string().max(60).nullish();
 
@@ -133,6 +150,29 @@ export function createApp({ db, setupToken, assistant, fetchFn = fetch }: AppDep
     const listId = c.req.param("id");
     if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
     return c.json({ suggestions: suggestions(db, listId) });
+  });
+
+  // ---- Price comparison (read-only) ----
+
+  app.post("/api/lists/:id/price-check", (c) => {
+    const listId = c.req.param("id");
+    const userId = c.get("user").id;
+    if (!canSeeList(userId, listId)) return c.json({ error: "unknown list" }, 404);
+    if (!priceWorker || !assistant) return c.json({ error: "Price checks aren't set up on the server (needs the worker container and an AI backend)." }, 503);
+    const started = startPriceCheck({ db, assistant, worker: priceWorker }, listId, userId);
+    return c.json(started, started.alreadyRunning ? 200 : 202);
+  });
+
+  app.get("/api/lists/:id/price-check", (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    return c.json({ check: latestPriceCheck(db, listId) });
+  });
+
+  app.get("/api/price-checks/:id", (c) => {
+    const check = getPriceCheck(db, c.req.param("id"));
+    if (!check || !canSeeList(c.get("user").id, check.listId)) return c.json({ error: "unknown price check" }, 404);
+    return c.json({ check });
   });
 
   // ---- Adding items: barcodes, photos, typed text ----

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { NotUnderstoodError, parseTextLocally, type Assistant } from "../src/claude.js";
+import { NotUnderstoodError, parseTextLocally, type Assistant } from "../src/ai/index.js";
 import { categorize, sectionFromOffTags } from "../src/sections.js";
 import { setup as base } from "./helpers.js";
 
@@ -49,7 +49,7 @@ describe("barcode lookup", () => {
 });
 
 describe("photo identification", () => {
-  const fake = (impl: Assistant["identifyPhoto"]): Assistant => ({ identifyPhoto: impl, parseText: async () => [] });
+  const fake = (impl: Assistant["identifyPhoto"]): Assistant => ({ name: "fake", identifyPhoto: impl, parseText: async () => [], matchOffer: vi.fn() });
   const image = "A".repeat(200);
 
   it("returns 503 when no API key is configured", async () => {
@@ -89,7 +89,7 @@ describe("text entry", () => {
     const parseText = vi.fn().mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce([
       { name: "Milk", qty: 1, brand: null, size: "2 L", sectionId: "dairy" },
     ]);
-    const { call } = await setup({ assistant: { identifyPhoto: vi.fn(), parseText } });
+    const { call } = await setup({ assistant: { name: "fake", identifyPhoto: vi.fn(), parseText, matchOffer: vi.fn() } });
     const first = await (await call("/api/parse", { method: "POST", body: JSON.stringify({ text: "2L milk, bread" }) })).json();
     expect(first.via).toBe("local");
     const second = await (await call("/api/parse", { method: "POST", body: JSON.stringify({ text: "2L milk" }) })).json();

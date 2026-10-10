@@ -89,6 +89,46 @@ export interface PastTrip extends TripSummary {
   count: number;
 }
 
+export interface Health {
+  ok: boolean;
+  version?: string;
+  ai?: { backend: string; name: string } | null;
+  priceCheck?: boolean;
+  stores?: Array<{ id: string; name: string }>;
+}
+
+export interface Offer {
+  name: string;
+  price: number;
+  memberPrice: number | null;
+  unitPrice: number | null;
+  unitLabel: string | null;
+  promo: string | null;
+}
+
+export interface CheckedItem {
+  itemId: string;
+  name: string;
+  qty: number;
+  query: string;
+  match: Offer | null;
+  confidence: "low" | "medium" | "high" | null;
+  lineTotal: number | null;
+  error?: string;
+}
+
+export interface PriceCheck {
+  id: string;
+  listId: string;
+  status: "running" | "done" | "failed";
+  startedAt: number;
+  finishedAt: number | null;
+  error: string | null;
+  stores: Array<{ id: string; name: string; items: CheckedItem[]; total: number; found: number; missing: number }>;
+  comparison: { items: number; totals: Record<string, number>; cheapest: string | null; saving: number } | null;
+  progress: { done: number; total: number };
+}
+
 export function baseUrl(serverUrl: string): string {
   const trimmed = serverUrl.trim().replace(/\/+$/, "");
   return /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`;
@@ -139,6 +179,14 @@ export const api = {
   history: (c: Connection, listId: string) => request<{ trips: PastTrip[] }>(c, `/api/lists/${encodeURIComponent(listId)}/history`),
   suggestions: (c: Connection, listId: string) =>
     request<{ suggestions: Suggestion[] }>(c, `/api/lists/${encodeURIComponent(listId)}/suggestions`),
+
+  health: (c: Connection) => request<Health>(c, "/api/health"),
+
+  startPriceCheck: (c: Connection, listId: string) =>
+    request<{ id: string; alreadyRunning: boolean }>(c, `/api/lists/${encodeURIComponent(listId)}/price-check`, post()),
+  latestPriceCheck: (c: Connection, listId: string) =>
+    request<{ check: PriceCheck | null }>(c, `/api/lists/${encodeURIComponent(listId)}/price-check`),
+  priceCheck: (c: Connection, id: string) => request<{ check: PriceCheck }>(c, `/api/price-checks/${encodeURIComponent(id)}`),
 
   barcode: (c: Connection, code: string) => request<{ found: boolean; product?: Product }>(c, `/api/barcode/${encodeURIComponent(code)}`),
   rememberBarcode: (c: Connection, code: string, p: Omit<Product, "barcode">) =>

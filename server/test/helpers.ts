@@ -1,5 +1,5 @@
 import { createApp } from "../src/app.js";
-import type { Assistant } from "../src/claude.js";
+import type { Assistant } from "../src/ai/index.js";
 import { openDb } from "../src/db.js";
 
 export const SETUP = "setup-secret";

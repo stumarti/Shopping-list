@@ -10,8 +10,11 @@ A shared grocery list for two iPhones (and an iPad), synced through a small serv
 
 ```
 apps/mobile   Expo (React Native) app for iPhone/iPad
-server        Node + SQLite API: sync, barcode lookup (Open Food Facts), Claude proxy
+server        Node + SQLite API: sync, barcode lookup (Open Food Facts), AI (Claude and/or a local model), price checks
+worker        Optional: Playwright browser that reads Tesco/Dunnes search pages for price checks
 ```
+
+Once it's running, work through [docs/TESTING.md](docs/TESTING.md) on your phones.
 
 ## 1. Run the server (home server, Docker)
 
@@ -32,6 +35,34 @@ On home Wi-Fi, `http://<server-ip>:8787` works. To also sync and use photo ident
 1. Install Tailscale on the server and both phones, all signed into the same account (or share the server with your partner's account).
 2. On the server, run `tailscale serve --bg 8787`. This gives you `https://<server-name>.<tailnet>.ts.net` with a real HTTPS certificate.
 3. Use that address in the app.
+
+### Optional: a local AI model (Ollama)
+
+Run [Ollama](https://ollama.com) on the Windows PC or a Mac mini, pull a vision-capable model, then set these in `.env` and restart:
+
+```sh
+OLLAMA_URL=http://host.docker.internal:11434   # or http://<pc-ip>:11434 if Ollama is on another machine
+OLLAMA_MODEL=<the model you pulled>
+AI_BACKEND=ollama-then-claude                   # or "ollama" to never use Claude
+```
+
+`ollama-then-claude` tries the local model first and asks Claude only when the local model fails or isn't sure what a photo shows, so most photos stay at home. **Sharing & sync → Server features** in the app shows which backend is answering. Expose Ollama on the network with `OLLAMA_HOST=0.0.0.0` if it runs on a different machine from Docker.
+
+### Optional: price checks (Tesco / Dunnes)
+
+The app's tag icon compares what your list would cost at Tesco and Dunnes. It is **read-only**: it searches each store's public website, never signs in, and never touches a basket.
+
+```sh
+# in .env: uncomment WORKER_URL and WORKER_TOKEN, and set DUNNES_SEARCH_URL to your branch
+docker compose --profile prices up -d --build
+```
+
+How it works: the `worker` container runs a real Chromium (Playwright), opens each store's search page for an item and returns the page text. The server keeps only the lines around prices and asks the AI to pick the best-matching product and read its price (the Clubcard/member price when shown). Totals are compared on the items both stores have. Results are cached for 12 hours, and searches on each store are spaced a few seconds apart.
+
+Things to know:
+- **Cost**: each item at each store is one AI call over a few thousand characters of page text. Set `CLAUDE_PRICE_MODEL=claude-haiku-4-5` to use a cheaper model just for this, or use a local model.
+- **Fragility**: stores change their sites and may block automated browsers. Because the AI reads the page text rather than relying on page layout, small redesigns shouldn't break it, but a block will. You'll see *Couldn't load the store page* and errors in `docker compose logs worker`.
+- **Terms of use**: both stores' terms restrict automated access. This is light, personal, read-only use, but it's your call.
 
 ## 2. Run the app (from Windows)
 
@@ -68,8 +99,11 @@ Expo Go is for development. To install the app for real on both phones, you need
 
 ## Development
 
+GitHub Actions runs everything below on every push and pull request (`.github/workflows/ci.yml`), plus a Docker build of the server and worker.
+
 ```sh
 cd server && npm install && npm test && npm run dev    # API on :8787; without APP_TOKEN anyone can create an account
+cd worker && npm install && npm test
 cd apps/mobile && npm test && npm run typecheck
 ```
 
@@ -104,6 +138,8 @@ All `/api/*` routes except health, setup and join require `Authorization: Bearer
 | `POST /api/trips`, `POST /api/trips/:id/finish` | Start / finish a shopping trip |
 | `GET /api/lists/:id/history` | Past trips and what was bought |
 | `GET /api/lists/:id/suggestions` | Usual items that are due and not on the list |
+| `POST /api/lists/:id/price-check` | Start a read-only Tesco/Dunnes price check (runs in the background) |
+| `GET /api/lists/:id/price-check`, `GET /api/price-checks/:id` | Latest / specific price check with progress and results |
 | `GET /api/barcode/:code` | Local cache, then Open Food Facts |
 | `PUT /api/barcode/:code` | Remember a product identified by photo |
 | `POST /api/identify` | `{image: base64 JPEG}` → `{name, brand, size, sectionId, confidence}` via Claude |
@@ -113,6 +149,5 @@ The model defaults to `claude-opus-5-5` (override with `CLAUDE_MODEL`) at low ef
 
 ## Roadmap
 
-- Price comparison between Tesco and Dunnes (read-only report)
 - Filling a Tesco/Dunnes basket from the list (stops before checkout)
 - Push notifications when your partner adds items or starts shopping (the "who's shopping" data is already there; this needs Apple push setup)
