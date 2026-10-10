@@ -41,7 +41,7 @@ export default function PhotoScreen() {
       setPhotoUri(pic.uri);
       setPhase({ kind: "thinking" });
       const image = await shrink(pic.uri);
-      const result = await api.identify(useStore.getState().settings, image);
+      const result = await api.identify(useStore.getState().connection(), image);
       setName(result.name);
       setBrand(result.brand ?? "");
       setSize(result.size ?? "");
@@ -63,7 +63,7 @@ export default function PhotoScreen() {
     useStore.getState().addItems([item], "photo");
     if (barcode && remember) {
       // Best effort: if it fails, the photo route still works next time.
-      api.rememberBarcode(useStore.getState().settings, barcode, { name: name.trim(), brand: brand.trim() || null, size: size.trim() || null, sectionId }).catch(() => {});
+      api.rememberBarcode(useStore.getState().connection(), barcode, { name: name.trim(), brand: brand.trim() || null, size: size.trim() || null, sectionId }).catch(() => {});
     }
     router.back();
   }

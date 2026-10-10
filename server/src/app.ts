@@ -2,51 +2,142 @@ import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
+import { authenticate, createInvite, createUser, issueToken, listPeople, redeemInvite, revokeToken, revokeUser, type User } from "./auth.js";
 import { NotUnderstoodError, parseTextLocally, type Assistant } from "./claude.js";
 import type { DB } from "./db.js";
 import { lookupBarcode, rememberProduct, type FetchFn } from "./products.js";
 import { categorize } from "./sections.js";
-import { applyOps, getState, OpSchema } from "./sync.js";
+import { applyOps, finishTrip, getState, OpSchema, startTrip, suggestions, tripHistory, visibleListIds } from "./sync.js";
 
 export interface AppDeps {
   db: DB;
-  /** Shared secret both phones send as a Bearer token. Unset = no auth (local dev only). */
-  token?: string;
+  /** Setup secret from .env: lets a new phone create a person without an invite. Unset = open setup (local dev only). */
+  setupToken?: string;
   assistant?: Assistant;
   fetchFn?: FetchFn;
 }
 
 const BARCODE = /^\d{6,14}$/;
 
-function tokenMatches(given: string, expected: string): boolean {
+function secretMatches(given: string, expected: string): boolean {
   const a = Buffer.from(given);
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function createApp({ db, token, assistant, fetchFn = fetch }: AppDeps) {
-  const app = new Hono();
+const bearer = (header: string | undefined) => (header?.startsWith("Bearer ") ? header.slice(7).trim() : "");
+const json = async (req: { json(): Promise<unknown> }) => req.json().catch(() => null);
+
+type Env = { Variables: { user: User; token: string } };
+
+export function createApp({ db, setupToken, assistant, fetchFn = fetch }: AppDeps) {
+  const app = new Hono<Env>();
+
+  // ---- Public: health, first-time setup, joining with an invite ----
 
   app.get("/api/health", (c) => c.json({ ok: true, claude: Boolean(assistant) }));
 
+  const Device = z.string().max(60).nullish();
+
+  app.post("/api/setup", async (c) => {
+    const parsed = z.object({ setupToken: z.string().default(""), name: z.string().min(1).max(40), device: Device }).safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "Enter your name." }, 400);
+    if (setupToken && !secretMatches(parsed.data.setupToken, setupToken)) return c.json({ error: "That setup token doesn't match the server's APP_TOKEN." }, 401);
+    const user = createUser(db, parsed.data.name);
+    return c.json({ user, token: issueToken(db, user.id, parsed.data.device ?? null) });
+  });
+
+  app.post("/api/join", async (c) => {
+    const parsed = z.object({ code: z.string().min(10).max(100), name: z.string().max(40).optional(), device: Device }).safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "Invalid invite." }, 400);
+    const result = redeemInvite(db, parsed.data.code, parsed.data.name, parsed.data.device ?? null);
+    if (!result.ok) return c.json({ error: result.error }, 400);
+    return c.json({ user: result.user, token: result.token });
+  });
+
+  // ---- Everything else needs a personal token ----
+
   app.use("/api/*", async (c, next) => {
-    if (!token) return next();
-    const header = c.req.header("authorization") ?? "";
-    const given = header.startsWith("Bearer ") ? header.slice(7) : "";
-    if (!tokenMatches(given, token)) return c.json({ error: "unauthorized" }, 401);
+    const token = bearer(c.req.header("authorization"));
+    const user = authenticate(db, token);
+    if (!user) return c.json({ error: "unauthorized" }, 401);
+    c.set("user", user);
+    c.set("token", token);
     return next();
   });
 
-  const sections = () => getState(db).sections;
+  const canSeeList = (userId: string, listId: string) => visibleListIds(db, userId).includes(listId);
 
-  app.get("/api/state", (c) => c.json(getState(db)));
+  app.get("/api/me", (c) => {
+    const me = c.get("user");
+    return c.json({ user: me, people: listPeople(db).map((p) => ({ ...p, isMe: p.id === me.id })) });
+  });
+
+  app.patch("/api/me", async (c) => {
+    const parsed = z.object({ name: z.string().min(1).max(40) }).safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "Enter a name." }, 400);
+    db.prepare("UPDATE users SET name = ? WHERE id = ?").run(parsed.data.name.trim(), c.get("user").id);
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/invites", async (c) => {
+    const parsed = z.object({ forMe: z.boolean().default(false) }).safeParse((await json(c.req)) ?? {});
+    const forMe = parsed.success && parsed.data.forMe;
+    const me = c.get("user");
+    return c.json(createInvite(db, me.id, forMe ? me.id : null));
+  });
+
+  /** Sign this device out. */
+  app.post("/api/logout", (c) => {
+    revokeToken(db, c.get("token"));
+    return c.json({ ok: true });
+  });
+
+  /** Sign out every device of a person, e.g. a lost phone. Household members trust each other. */
+  app.post("/api/people/:id/revoke", (c) => {
+    const n = revokeUser(db, c.req.param("id"));
+    return c.json({ ok: true, revoked: n });
+  });
+
+  app.get("/api/state", (c) => c.json(getState(db, c.get("user").id)));
 
   app.post("/api/sync", bodyLimit({ maxSize: 1024 * 1024 }), async (c) => {
-    const parsed = z.object({ ops: z.array(OpSchema).max(2000) }).safeParse(await c.req.json().catch(() => null));
+    const parsed = z.object({ ops: z.array(OpSchema).max(2000) }).safeParse(await json(c.req));
     if (!parsed.success) return c.json({ error: "invalid ops", detail: parsed.error.issues.slice(0, 5) }, 400);
-    applyOps(db, parsed.data.ops);
-    return c.json(getState(db));
+    const userId = c.get("user").id;
+    applyOps(db, userId, parsed.data.ops);
+    return c.json(getState(db, userId));
   });
+
+  // ---- Shopping trips, history and "usual items" ----
+
+  app.post("/api/trips", async (c) => {
+    const parsed = z.object({ listId: z.string() }).safeParse(await json(c.req));
+    const userId = c.get("user").id;
+    if (!parsed.success || !canSeeList(userId, parsed.data.listId)) return c.json({ error: "unknown list" }, 404);
+    return c.json(startTrip(db, userId, parsed.data.listId));
+  });
+
+  app.post("/api/trips/:id/finish", (c) => {
+    const summary = finishTrip(db, c.get("user").id, c.req.param("id"));
+    return summary ? c.json(summary) : c.json({ error: "unknown trip" }, 404);
+  });
+
+  app.get("/api/lists/:id/history", (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    return c.json({ trips: tripHistory(db, c.get("user").id, listId) });
+  });
+
+  app.get("/api/lists/:id/suggestions", (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    return c.json({ suggestions: suggestions(db, listId) });
+  });
+
+  // ---- Adding items: barcodes, photos, typed text ----
+
+  const sections = () => db.prepare("SELECT id, name, color FROM sections ORDER BY position, id").all() as Array<{ id: string; name: string; color: string }>;
 
   app.get("/api/barcode/:code", async (c) => {
     const code = c.req.param("code");
@@ -57,25 +148,6 @@ export function createApp({ db, token, assistant, fetchFn = fetch }: AppDeps) {
     } catch (err) {
       console.error("barcode lookup failed", err);
       return c.json({ error: "lookup unavailable" }, 502);
-    }
-  });
-
-  const IdentifyBody = z.object({
-    image: z.string().min(100),
-    mediaType: z.enum(["image/jpeg", "image/png", "image/webp"]).default("image/jpeg"),
-  });
-
-  app.post("/api/identify", bodyLimit({ maxSize: 8 * 1024 * 1024 }), async (c) => {
-    if (!assistant) return c.json({ error: "Photo identification needs ANTHROPIC_API_KEY on the server" }, 503);
-    const parsed = IdentifyBody.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "invalid image" }, 400);
-    try {
-      const result = await assistant.identifyPhoto(parsed.data.image, parsed.data.mediaType, sections());
-      return c.json(result);
-    } catch (err) {
-      if (err instanceof NotUnderstoodError) return c.json({ error: "Couldn't recognise that. Try a closer photo of the label." }, 422);
-      console.error("identify failed", err);
-      return c.json({ error: "identification unavailable" }, 502);
     }
   });
 
@@ -90,14 +162,32 @@ export function createApp({ db, token, assistant, fetchFn = fetch }: AppDeps) {
   app.put("/api/barcode/:code", async (c) => {
     const code = c.req.param("code");
     if (!BARCODE.test(code)) return c.json({ error: "invalid barcode" }, 400);
-    const parsed = RememberBody.safeParse(await c.req.json().catch(() => null));
+    const parsed = RememberBody.safeParse(await json(c.req));
     if (!parsed.success) return c.json({ error: "invalid product" }, 400);
     rememberProduct(db, { barcode: code, ...parsed.data, source: "photo" });
     return c.json({ ok: true });
   });
 
+  const IdentifyBody = z.object({
+    image: z.string().min(100),
+    mediaType: z.enum(["image/jpeg", "image/png", "image/webp"]).default("image/jpeg"),
+  });
+
+  app.post("/api/identify", bodyLimit({ maxSize: 8 * 1024 * 1024 }), async (c) => {
+    if (!assistant) return c.json({ error: "Photo identification needs ANTHROPIC_API_KEY on the server" }, 503);
+    const parsed = IdentifyBody.safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "invalid image" }, 400);
+    try {
+      return c.json(await assistant.identifyPhoto(parsed.data.image, parsed.data.mediaType, sections()));
+    } catch (err) {
+      if (err instanceof NotUnderstoodError) return c.json({ error: "Couldn't recognise that. Try a closer photo of the label." }, 422);
+      console.error("identify failed", err);
+      return c.json({ error: "identification unavailable" }, 502);
+    }
+  });
+
   app.post("/api/parse", bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
-    const parsed = z.object({ text: z.string().min(1).max(2000) }).safeParse(await c.req.json().catch(() => null));
+    const parsed = z.object({ text: z.string().min(1).max(2000) }).safeParse(await json(c.req));
     if (!parsed.success) return c.json({ error: "invalid text" }, 400);
     const text = parsed.data.text;
     // A single plain item doesn't need a model call.

@@ -24,8 +24,8 @@ export const colors = {
 export const radius = { sm: 12, md: 16, lg: 18, xl: 20, pill: 999 };
 
 /** Two-tone avatar colours: you vs anyone else on the list. */
-export function avatarColor(addedBy: string | null, me: string): string {
-  return !addedBy || addedBy === me ? "#DCE9E1" : "#F3E3D3";
+export function avatarColor(mine: boolean): string {
+  return mine ? "#DCE9E1" : "#F3E3D3";
 }
 
 export function initial(name: string | null): string {

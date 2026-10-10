@@ -1,66 +1,108 @@
 import * as Linking from "expo-linking";
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Card, Icon, Label, s as ui } from "../components/ui";
+import { api, ApiError, type Person } from "../lib/api";
 import { useStore } from "../lib/store";
 import { avatarColor, colors, initial, radius } from "../lib/theme";
 
 const STATUS_TEXT = {
-  unconfigured: { label: "Not set up", tone: "muted" },
+  signedOut: { label: "Signed out", tone: "muted" },
   syncing: { label: "Syncing…", tone: "ok" },
   ok: { label: "Connected", tone: "ok" },
   offline: { label: "Can't reach", tone: "warn" },
-  unauthorized: { label: "Wrong token", tone: "warn" },
+  unauthorized: { label: "Signed out", tone: "warn" },
   error: { label: "Server error", tone: "warn" },
 } as const;
 
+function seen(t: number | null): string {
+  if (!t) return "never";
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
+}
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  // An invite link opens this screen with the server details filled in.
-  const params = useLocalSearchParams<{ server?: string; token?: string }>();
-  const settings = useStore((st) => st.settings);
+  const serverUrl = useStore((st) => st.serverUrl);
+  const user = useStore((st) => st.user);
   const status = useStore((st) => st.status);
   const lastSyncAt = useStore((st) => st.lastSyncAt);
   const waiting = useStore((st) => st.outbox.length);
-  const items = useStore((st) => st.items);
 
-  const [serverUrl, setServerUrl] = useState(params.server ?? settings.serverUrl);
-  const [token, setToken] = useState(params.token ?? settings.token);
-  const [name, setName] = useState(settings.name);
-  const fromInvite = Boolean(params.server && params.token);
+  const [people, setPeople] = useState<Person[] | null>(null);
+  const [name, setName] = useState(user?.name ?? "");
 
-  useEffect(() => {
-    if (fromInvite) Alert.alert("Join shared list", "The server details from your invite are filled in. Add your name and tap Save.");
-  }, [fromInvite]);
+  const loadPeople = useCallback(() => {
+    api
+      .me(useStore.getState().connection())
+      .then((r) => {
+        setPeople(r.people);
+        useStore.setState({ user: r.user });
+      })
+      .catch(() => setPeople(null));
+  }, []);
+  useFocusEffect(loadPeople);
 
-  // Everyone who has added something, so you can see who's on the list.
-  const people = useMemo(() => {
-    const names = new Set(items.map((i) => i.addedBy).filter((n): n is string => Boolean(n)));
-    if (settings.name) names.delete(settings.name);
-    return [...names];
-  }, [items, settings.name]);
-
-  function save() {
-    useStore.getState().setSettings({ serverUrl: serverUrl.trim(), token: token.trim(), name: name.trim() });
-    void useStore.getState().sync();
+  async function invite(forMe: boolean) {
+    try {
+      const { code } = await api.invite(useStore.getState().connection(), forMe);
+      const link = Linking.createURL("/welcome", { queryParams: { server: serverUrl, code, kind: forMe ? "device" : "person" } });
+      await Share.share({
+        message: forMe
+          ? `Open this on your other device (with the Shopping app installed) to sign in as ${user?.name ?? "me"}. Works once, for 7 days:\n${link}`
+          : `Join our shopping list: install the Shopping app, then open this link on your phone. Works once, for 7 days:\n${link}`,
+      });
+    } catch (err) {
+      Alert.alert("Couldn't create an invite", err instanceof ApiError ? err.message : "Try again when you're connected to the home server.");
+    }
   }
 
-  async function invite() {
-    if (!settings.serverUrl || !settings.token) {
-      Alert.alert("Set up your server first", "Save a working server address and token, then invite your partner.");
-      return;
+  function revoke(p: Person) {
+    Alert.alert(`Sign out ${p.name}?`, `All of ${p.name}'s devices will be signed out and need a new invite to get back in. Use this for a lost or sold phone.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign out",
+        style: "destructive",
+        onPress: async () => {
+          await api.revoke(useStore.getState().connection(), p.id).catch(() => {});
+          loadPeople();
+        },
+      },
+    ]);
+  }
+
+  async function saveName() {
+    if (!name.trim() || name.trim() === user?.name) return;
+    try {
+      await api.rename(useStore.getState().connection(), name.trim());
+      loadPeople();
+      void useStore.getState().sync();
+    } catch {
+      Alert.alert("Couldn't save your name", "Try again when you're connected to the home server.");
     }
-    const link = Linking.createURL("/settings", { queryParams: { server: settings.serverUrl, token: settings.token } });
-    await Share.share({
-      message: `Join our shopping list: install the Shopping app, then open this link on your phone:\n${link}`,
-    });
+  }
+
+  function signOut() {
+    Alert.alert("Sign out of this device?", "Your lists stay on the server. You'll need an invite or the setup token to sign back in.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign out",
+        style: "destructive",
+        onPress: async () => {
+          await useStore.getState().signOut();
+          router.replace("/welcome");
+        },
+      },
+    ]);
   }
 
   const st = STATUS_TEXT[status];
   const pill = st.tone === "ok" ? { bg: colors.accentTint, fg: colors.accentInk } : st.tone === "warn" ? { bg: colors.warnBg, fg: colors.warnInk } : { bg: colors.chip, fg: colors.muted };
-  const dirty = serverUrl.trim() !== settings.serverUrl || token.trim() !== settings.token || name.trim() !== settings.name;
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: insets.bottom + 28, gap: 22 }} keyboardShouldPersistTaps="handled">
@@ -77,30 +119,44 @@ export default function SettingsScreen() {
       <View style={{ gap: 8 }}>
         <Text style={styles.h2}>People</Text>
         <Card>
-          <View style={styles.person}>
-            <View style={[styles.avatar, { backgroundColor: avatarColor(null, "") }]}>
-              <Text style={styles.avatarText}>{initial(settings.name || "You")}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.personName}>{settings.name || "You"}</Text>
-              <Text style={styles.small}>This device</Text>
-            </View>
-          </View>
-          {people.map((p) => (
-            <View key={p} style={[styles.person, styles.border]}>
-              <View style={[styles.avatar, { backgroundColor: avatarColor(p, settings.name) }]}>
-                <Text style={styles.avatarText}>{initial(p)}</Text>
+          {(people ?? (user ? [{ ...user, devices: 1, lastSeen: null, isMe: true }] : [])).map((p, i) => (
+            <View key={p.id} style={[styles.person, i > 0 && styles.border]}>
+              <View style={[styles.avatar, { backgroundColor: avatarColor(p.isMe) }]}>
+                <Text style={styles.avatarText}>{initial(p.name)}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.personName}>{p}</Text>
-                <Text style={styles.small}>Can add, tick and reorder</Text>
+                <Text style={styles.personName}>{p.isMe ? `${p.name} (you)` : p.name}</Text>
+                <Text style={styles.small}>
+                  {p.devices === 0 ? "Signed out" : `${p.devices} device${p.devices === 1 ? "" : "s"} · active ${seen(p.lastSeen)}`}
+                </Text>
               </View>
+              {!p.isMe && p.devices > 0 ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Sign out ${p.name}`} onPress={() => revoke(p)} hitSlop={6} style={styles.smallBtn}>
+                  <Text style={styles.smallBtnText}>Sign out</Text>
+                </Pressable>
+              ) : null}
             </View>
           ))}
-          <Pressable accessibilityRole="button" onPress={invite} style={[styles.person, styles.border]}>
-            <Icon name="link-outline" color={colors.accent} size={20} />
-            <Text style={styles.inviteText}>Invite with a link</Text>
+          <Pressable accessibilityRole="button" onPress={() => invite(false)} style={[styles.person, styles.border]}>
+            <Icon name="person-add-outline" color={colors.accent} size={20} />
+            <Text style={styles.inviteText}>Invite someone</Text>
           </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => invite(true)} style={[styles.person, styles.border]}>
+            <Icon name="tablet-portrait-outline" color={colors.accent} size={20} />
+            <Text style={styles.inviteText}>Add another device for me</Text>
+          </Pressable>
+        </Card>
+        <Text style={[styles.small, { paddingHorizontal: 4 }]}>Invite links work once and expire after 7 days. Everyone shares the main list; private lists are only visible to the person who made them.</Text>
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <Text style={styles.h2}>Your name</Text>
+        <Card style={{ padding: 16, gap: 12 }}>
+          <View style={{ gap: 6 }}>
+            <Label>Shown on items you add</Label>
+            <TextInput accessibilityLabel="Your name" value={name} onChangeText={setName} onSubmitEditing={saveName} returnKeyType="done" style={ui.input} />
+          </View>
+          {name.trim() && name.trim() !== user?.name ? <Button label="Save name" onPress={saveName} /> : null}
         </Card>
       </View>
 
@@ -114,7 +170,7 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.personName}>Home server</Text>
               <Text style={styles.small} numberOfLines={1}>
-                {settings.serverUrl || "Not set"}
+                {serverUrl || "Not set"}
               </Text>
             </View>
             <View style={[styles.pill, { backgroundColor: pill.bg }]}>
@@ -131,48 +187,11 @@ export default function SettingsScreen() {
           </View>
         </Card>
         <Text style={[styles.small, { paddingHorizontal: 4 }]}>
-          No connection? Changes are kept on this phone and sent as soon as the home server is reachable again.
+          No connection? Changes are kept on this device and sent as soon as the home server is reachable again.
         </Text>
       </View>
 
-      <View style={{ gap: 8 }}>
-        <Text style={styles.h2}>Connection</Text>
-        <Card style={{ padding: 16, gap: 12 }}>
-          <View style={{ gap: 6 }}>
-            <Label>Your name</Label>
-            <TextInput accessibilityLabel="Your name" value={name} onChangeText={setName} placeholder="Shown on items you add" placeholderTextColor={colors.faint} style={ui.input} />
-          </View>
-          <View style={{ gap: 6 }}>
-            <Label>Server address</Label>
-            <TextInput
-              accessibilityLabel="Server address"
-              value={serverUrl}
-              onChangeText={setServerUrl}
-              placeholder="https://homeserver.your-tailnet.ts.net"
-              placeholderTextColor={colors.faint}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              style={ui.input}
-            />
-          </View>
-          <View style={{ gap: 6 }}>
-            <Label>Access token</Label>
-            <TextInput
-              accessibilityLabel="Access token"
-              value={token}
-              onChangeText={setToken}
-              placeholder="APP_TOKEN from the server's .env"
-              placeholderTextColor={colors.faint}
-              autoCapitalize="none"
-              autoCorrect={false}
-              secureTextEntry
-              style={ui.input}
-            />
-          </View>
-          <Button label={dirty ? "Save and connect" : "Test connection"} onPress={save} />
-        </Card>
-      </View>
+      <Button label="Sign out of this device" variant="danger" icon="log-out-outline" onPress={signOut} />
     </ScrollView>
   );
 }
@@ -189,6 +208,8 @@ const styles = StyleSheet.create({
   avatarText: { fontWeight: "700", color: colors.ink },
   personName: { fontSize: 16, fontWeight: "600", color: colors.ink },
   small: { fontSize: 13, lineHeight: 18, color: colors.muted },
+  smallBtn: { minHeight: 36, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: colors.chip, justifyContent: "center" },
+  smallBtnText: { fontSize: 13, fontWeight: "700", color: colors.ink },
   inviteText: { fontSize: 16, fontWeight: "700", color: colors.accent },
   serverIcon: { width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.chip, alignItems: "center", justifyContent: "center" },
   pill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill },

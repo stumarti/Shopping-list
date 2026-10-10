@@ -29,7 +29,7 @@ export default function ScanScreen() {
   async function lookup(code: string) {
     setPhase({ kind: "looking", code });
     try {
-      const res = await api.barcode(useStore.getState().settings, code);
+      const res = await api.barcode(useStore.getState().connection(), code);
       if (res.found && res.product) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setSectionId(res.product.sectionId);
