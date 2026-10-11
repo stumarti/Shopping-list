@@ -3,7 +3,7 @@
     "name": "Shopping",
     "slug": "shopping-list",
     "scheme": "shoppinglist",
-    "version": "0.1.0",
+    "version": "0.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -35,6 +35,13 @@
           "cameraPermission": "Shopping uses the camera to scan barcodes and photograph products to add them to your list.",
           "microphonePermission": false,
           "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Shopping reads photos of your receipts to learn what you buy.",
+          "cameraPermission": "Shopping uses the camera to photograph receipts and products."
         }
       ]
     ]

@@ -3,19 +3,30 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { authenticate, createInvite, createUser, issueToken, listPeople, redeemInvite, revokeToken, revokeUser, type User } from "./auth.js";
-import { NotUnderstoodError, parseTextLocally, type Assistant } from "./claude.js";
+import { NotUnderstoodError, parseTextLocally, type AiBackend, type Assistant } from "./ai/index.js";
 import type { DB } from "./db.js";
+import { changeLine, fillBasket, getOrder, latestOrder, startOrder, WorkerError, type StoreWorker } from "./ordering.js";
+import { getPriceCheck, latestPriceCheck, startPriceCheck, STORES, type PriceWorker } from "./pricing.js";
 import { lookupBarcode, rememberProduct, type FetchFn } from "./products.js";
 import { categorize } from "./sections.js";
-import { applyOps, finishTrip, getState, OpSchema, startTrip, suggestions, tripHistory, visibleListIds } from "./sync.js";
+import { addToList, getSettings, plan, runAutoPlan, setSettings, trends } from "./planning.js";
+import { confirmReceipt, deleteReceipt, DuplicateReceiptError, getReceipt, listReceipts, readReceipt, updateReceipt } from "./receipts.js";
+import { applyOps, finishTrip, getState, OpSchema, startTrip, tripHistory, visibleListIds } from "./sync.js";
 
 export interface AppDeps {
   db: DB;
   /** Setup secret from .env: lets a new phone create a person without an invite. Unset = open setup (local dev only). */
   setupToken?: string;
   assistant?: Assistant;
+  aiBackend?: AiBackend;
+  /** Playwright worker that loads store search pages; unset = price checks off. */
+  priceWorker?: PriceWorker;
+  /** Same worker, signed-in side: linking store accounts and filling baskets. */
+  storeWorker?: StoreWorker;
   fetchFn?: FetchFn;
 }
+
+export const VERSION = "0.3.0";
 
 const BARCODE = /^\d{6,14}$/;
 
@@ -30,12 +41,25 @@ const json = async (req: { json(): Promise<unknown> }) => req.json().catch(() =>
 
 type Env = { Variables: { user: User; token: string } };
 
-export function createApp({ db, setupToken, assistant, fetchFn = fetch }: AppDeps) {
+export function createApp({ db, setupToken, assistant, aiBackend, priceWorker, storeWorker, fetchFn = fetch }: AppDeps) {
   const app = new Hono<Env>();
 
   // ---- Public: health, first-time setup, joining with an invite ----
 
-  app.get("/api/health", (c) => c.json({ ok: true, claude: Boolean(assistant) }));
+  // Also used by the app's Settings screen to show what this server can do.
+  app.get("/api/health", (c) =>
+    c.json({
+      ok: true,
+      version: VERSION,
+      ai: assistant ? { backend: aiBackend ?? "custom", name: assistant.name } : null,
+      priceCheck: Boolean(priceWorker && assistant),
+      onlineOrdering: Boolean(storeWorker),
+      receipts: Boolean(assistant),
+      stores: STORES,
+      // Kept for older app versions.
+      claude: Boolean(assistant),
+    }),
+  );
 
   const Device = z.string().max(60).nullish();
 
@@ -129,10 +153,299 @@ export function createApp({ db, setupToken, assistant, fetchFn = fetch }: AppDep
     return c.json({ trips: tripHistory(db, c.get("user").id, listId) });
   });
 
+  // Kept for the list screen's "usual items" chips: now the weekly plan.
   app.get("/api/lists/:id/suggestions", (c) => {
     const listId = c.req.param("id");
     if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
-    return c.json({ suggestions: suggestions(db, listId) });
+    return c.json({ suggestions: plan(db, listId).slice(0, 8) });
+  });
+
+  // ---- Weekly plan: what you'll probably need, and keeping the list topped up ----
+
+  app.get("/api/lists/:id/plan", (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    const horizon = Number(c.req.query("horizon")) || undefined;
+    return c.json({ predictions: plan(db, listId, Date.now(), horizon), settings: getSettings(db, listId) });
+  });
+
+  app.post("/api/lists/:id/plan/add", async (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    const parsed = z.object({ keys: z.array(z.string()).max(200), horizon: z.number().int().min(1).max(31).optional() }).safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "bad request" }, 400);
+    const wanted = new Set(parsed.data.keys);
+    const added = addToList(db, listId, plan(db, listId, Date.now(), parsed.data.horizon).filter((p) => wanted.has(p.key)));
+    return c.json({ added });
+  });
+
+  app.put("/api/lists/:id/plan/settings", async (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    const parsed = z.object({ autoAdd: z.boolean().optional(), horizonDays: z.number().int().min(1).max(31).optional() }).safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "bad request" }, 400);
+    const settings = setSettings(db, listId, parsed.data);
+    if (parsed.data.autoAdd) runAutoPlan(db);
+    return c.json({ settings });
+  });
+
+  app.get("/api/lists/:id/trends", (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    return c.json(trends(db, listId));
+  });
+
+  // ---- Receipts ----
+
+  const ReceiptFiles = z.array(
+    z.object({ data: z.string().min(100), mediaType: z.enum(["image/jpeg", "image/png", "image/webp", "application/pdf"]) }),
+  );
+  const ReceiptEdit = z.object({
+    store: z.string().max(60).nullable(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    total: z.number().nullable(),
+    lines: z
+      .array(
+        z.object({
+          raw: z.string().max(200),
+          name: z.string().min(1).max(200),
+          brand: z.string().max(100).nullable(),
+          size: z.string().max(50).nullable(),
+          qty: z.number().int().min(1).max(99),
+          unitPrice: z.number().nullable(),
+          lineTotal: z.number().nullable(),
+          sectionId: z.string().max(64),
+          isProduct: z.boolean(),
+        }),
+      )
+      .max(400),
+  });
+  const receiptFor = (userId: string, id: string) => {
+    const r = getReceipt(db, id);
+    return r && canSeeList(userId, r.listId) ? r : null;
+  };
+
+  app.post("/api/lists/:id/receipts", bodyLimit({ maxSize: 30 * 1024 * 1024 }), async (c) => {
+    const listId = c.req.param("id");
+    const userId = c.get("user").id;
+    if (!canSeeList(userId, listId)) return c.json({ error: "unknown list" }, 404);
+    if (!assistant) return c.json({ error: "Reading receipts needs an AI backend on the server (ANTHROPIC_API_KEY or Ollama)." }, 503);
+    const parsed = z.object({ files: ReceiptFiles.min(1).max(10) }).safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "Send 1–10 photos or a PDF of the receipt." }, 400);
+    try {
+      const receipt = await readReceipt({ db, assistant, sections: sections() }, userId, listId, parsed.data.files);
+      return c.json({ receipt }, 201);
+    } catch (err) {
+      if (err instanceof DuplicateReceiptError) return c.json({ error: err.message, existingId: err.existingId }, 409);
+      if (err instanceof NotUnderstoodError) return c.json({ error: err.message || "Couldn't read that receipt. Try a flatter, brighter photo." }, 422);
+      console.error("receipt reading failed", err);
+      return c.json({ error: "Couldn't read the receipt right now." }, 502);
+    }
+  });
+
+  app.get("/api/lists/:id/receipts", (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    return c.json({ receipts: listReceipts(db, listId) });
+  });
+
+  app.get("/api/receipts/:id", (c) => {
+    const r = receiptFor(c.get("user").id, c.req.param("id"));
+    return r ? c.json({ receipt: r }) : c.json({ error: "unknown receipt" }, 404);
+  });
+
+  app.patch("/api/receipts/:id", async (c) => {
+    if (!receiptFor(c.get("user").id, c.req.param("id"))) return c.json({ error: "unknown receipt" }, 404);
+    const parsed = ReceiptEdit.safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "bad request" }, 400);
+    const r = updateReceipt(db, c.req.param("id"), parsed.data);
+    return r ? c.json({ receipt: r }) : c.json({ error: "This receipt is already in your history." }, 409);
+  });
+
+  app.post("/api/receipts/:id/confirm", (c) => {
+    const userId = c.get("user").id;
+    if (!receiptFor(userId, c.req.param("id"))) return c.json({ error: "unknown receipt" }, 404);
+    try {
+      const r = confirmReceipt(db, c.req.param("id"), userId);
+      if (!r) return c.json({ error: "This receipt is already in your history." }, 409);
+      runAutoPlan(db);
+      return c.json({ receipt: r });
+    } catch (err) {
+      if (err instanceof DuplicateReceiptError) return c.json({ error: err.message, existingId: err.existingId }, 409);
+      throw err;
+    }
+  });
+
+  app.delete("/api/receipts/:id", (c) => {
+    if (!receiptFor(c.get("user").id, c.req.param("id"))) return c.json({ error: "unknown receipt" }, 404);
+    deleteReceipt(db, c.req.param("id"));
+    return c.json({ ok: true });
+  });
+
+  // ---- Price comparison (read-only) ----
+
+  app.post("/api/lists/:id/price-check", (c) => {
+    const listId = c.req.param("id");
+    const userId = c.get("user").id;
+    if (!canSeeList(userId, listId)) return c.json({ error: "unknown list" }, 404);
+    if (!priceWorker || !assistant) return c.json({ error: "Price checks aren't set up on the server (needs the worker container and an AI backend)." }, 503);
+    const started = startPriceCheck({ db, assistant, worker: priceWorker }, listId, userId);
+    return c.json(started, started.alreadyRunning ? 200 : 202);
+  });
+
+  app.get("/api/lists/:id/price-check", (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    return c.json({ check: latestPriceCheck(db, listId) });
+  });
+
+  app.get("/api/price-checks/:id", (c) => {
+    const check = getPriceCheck(db, c.req.param("id"));
+    if (!check || !canSeeList(c.get("user").id, check.listId)) return c.json({ error: "unknown price check" }, 404);
+    return c.json({ check });
+  });
+
+  // ---- Online ordering: link a store account, check the slot, match items, fill the basket ----
+
+  const workerError = (c: { json: (b: unknown, s?: number) => Response }, err: unknown) => {
+    if (err instanceof WorkerError) return c.json({ error: err.message, notReady: err.notReady }, err.notReady ? 501 : 502);
+    console.error("store worker failed", err);
+    return c.json({ error: "The store worker isn't responding." }, 502);
+  };
+  const noWorker = (c: { json: (b: unknown, s?: number) => Response }) =>
+    c.json({ error: "Online ordering isn't set up on the server (needs the worker container)." }, 503);
+  const Store = z.string().regex(/^[a-z]{1,20}$/);
+
+  async function onlineStore(id: string) {
+    return (await storeWorker!.stores()).find((s) => s.id === id) ?? null;
+  }
+
+  app.get("/api/online/stores", async (c) => {
+    if (!storeWorker) return noWorker(c);
+    try {
+      return c.json({ stores: await storeWorker.stores() });
+    } catch (err) {
+      return workerError(c, err);
+    }
+  });
+
+  /** Is this person's account linked, and which slot have they booked? */
+  app.get("/api/online/:store/status", async (c) => {
+    if (!storeWorker) return noWorker(c);
+    const store = Store.safeParse(c.req.param("store"));
+    if (!store.success) return c.json({ error: "unknown store" }, 404);
+    try {
+      return c.json(await storeWorker.slot(c.get("user").id, store.data));
+    } catch (err) {
+      return workerError(c, err);
+    }
+  });
+
+  app.post("/api/online/:store/link", async (c) => {
+    if (!storeWorker) return noWorker(c);
+    const store = Store.safeParse(c.req.param("store"));
+    if (!store.success) return c.json({ error: "unknown store" }, 404);
+    try {
+      return c.json({ view: await storeWorker.openAccount(c.get("user").id, store.data) });
+    } catch (err) {
+      return workerError(c, err);
+    }
+  });
+
+  app.get("/api/online/:store/link/screenshot", async (c) => {
+    if (!storeWorker) return noWorker(c);
+    const store = Store.safeParse(c.req.param("store"));
+    if (!store.success) return c.json({ error: "unknown store" }, 404);
+    try {
+      const jpeg = await storeWorker.screenshot(c.get("user").id, store.data);
+      return c.body(new Uint8Array(jpeg), 200, { "content-type": "image/jpeg", "cache-control": "no-store" });
+    } catch (err) {
+      return workerError(c, err);
+    }
+  });
+
+  const RemoteInputSchema = z.discriminatedUnion("type", [
+    z.object({ type: z.literal("click"), x: z.number().min(0).max(2000), y: z.number().min(0).max(4000) }),
+    z.object({ type: z.literal("type"), text: z.string().max(500) }),
+    z.object({ type: z.literal("key"), key: z.enum(["Enter", "Tab", "Backspace", "Escape"]) }),
+    z.object({ type: z.literal("scroll"), dy: z.number().min(-5000).max(5000) }),
+    z.object({ type: z.literal("back") }),
+  ]);
+
+  app.post("/api/online/:store/link/input", async (c) => {
+    if (!storeWorker) return noWorker(c);
+    const store = Store.safeParse(c.req.param("store"));
+    const event = RemoteInputSchema.safeParse(await json(c.req));
+    if (!store.success || !event.success) return c.json({ error: "bad request" }, 400);
+    try {
+      await storeWorker.input(c.get("user").id, store.data, event.data);
+      return c.json({ ok: true });
+    } catch (err) {
+      return workerError(c, err);
+    }
+  });
+
+  app.post("/api/online/:store/link/done", async (c) => {
+    if (!storeWorker) return noWorker(c);
+    const store = Store.safeParse(c.req.param("store"));
+    if (!store.success) return c.json({ error: "unknown store" }, 404);
+    try {
+      await storeWorker.closeAccount(c.get("user").id, store.data);
+      return c.json(await storeWorker.slot(c.get("user").id, store.data));
+    } catch (err) {
+      return workerError(c, err);
+    }
+  });
+
+  const deps = () => ({ db, worker: storeWorker!, assistant });
+
+  app.post("/api/orders", async (c) => {
+    if (!storeWorker) return noWorker(c);
+    const parsed = z.object({ listId: z.string(), store: Store }).safeParse(await json(c.req));
+    const userId = c.get("user").id;
+    if (!parsed.success || !canSeeList(userId, parsed.data.listId)) return c.json({ error: "unknown list" }, 404);
+    try {
+      const store = await onlineStore(parsed.data.store);
+      if (!store) return c.json({ error: "unknown store" }, 404);
+      const started = await startOrder(deps(), userId, parsed.data.listId, store);
+      return started.ok ? c.json({ id: started.id }, 202) : c.json({ error: started.message, code: started.code }, 409);
+    } catch (err) {
+      return workerError(c, err);
+    }
+  });
+
+  app.get("/api/orders", (c) => {
+    const listId = c.req.query("listId") ?? "";
+    const userId = c.get("user").id;
+    if (!canSeeList(userId, listId)) return c.json({ error: "unknown list" }, 404);
+    return c.json({ order: latestOrder(db, userId, listId) });
+  });
+
+  // Orders are personal: each one fills the basket of the person who started it.
+  app.get("/api/orders/:id", (c) => {
+    const order = getOrder(db, c.req.param("id"), c.get("user").id);
+    return order ? c.json({ order }) : c.json({ error: "unknown order" }, 404);
+  });
+
+  const LineChangeSchema = z.union([
+    z.object({ choose: z.string().min(1).max(500) }),
+    z.object({ skip: z.literal(true) }),
+    z.object({ qty: z.number().int().min(1).max(99) }),
+    z.object({ search: z.string().min(1).max(200) }),
+  ]);
+
+  app.patch("/api/orders/:id/lines/:itemId", async (c) => {
+    if (!storeWorker) return noWorker(c);
+    const change = LineChangeSchema.safeParse(await json(c.req));
+    if (!change.success) return c.json({ error: "bad request" }, 400);
+    const order = await changeLine(deps(), c.get("user").id, c.req.param("id"), c.req.param("itemId"), change.data);
+    return order ? c.json({ order }) : c.json({ error: "Can't change that item now." }, 409);
+  });
+
+  app.post("/api/orders/:id/fill", (c) => {
+    if (!storeWorker) return noWorker(c);
+    const result = fillBasket(deps(), c.get("user").id, c.req.param("id"));
+    return result.ok ? c.json({ ok: true }, 202) : c.json({ error: result.message }, 409);
   });
 
   // ---- Adding items: barcodes, photos, typed text ----

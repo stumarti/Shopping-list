@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { HOUSEHOLD_LIST, nameKey, type DB } from "./db.js";
+import { snooze } from "./planning.js";
 
 // Ops are what phones queue while offline and replay on sync. Every op carries the client
 // timestamp it was made at; the server keeps the newest write per row (last write wins).
@@ -14,7 +15,7 @@ const ItemSchema = z.object({
   qty: z.number().int().min(1).max(999).default(1),
   sectionId: z.string().min(1).max(64),
   done: z.boolean().default(false),
-  source: z.enum(["text", "scan", "photo"]).default("text"),
+  source: z.enum(["text", "scan", "photo", "plan"]).default("text"),
   barcode: z.string().max(32).nullish(),
 });
 
@@ -61,6 +62,7 @@ export function activeTripId(db: DB, userId: string, listId: string): string | n
 export function applyOps(db: DB, userId: string, ops: Op[]): void {
   const getList = db.prepare("SELECT * FROM lists WHERE id = ?");
   const getItem = db.prepare("SELECT list_id, done, updated_at FROM items WHERE id = ?");
+  const getPlanned = db.prepare("SELECT name, source, done FROM items WHERE id = ?");
   const upsertItem = db.prepare(`
     INSERT INTO items (id, list_id, name, brand, size, qty, section_id, done, source, barcode, added_by_user, created_at, updated_at, deleted)
     VALUES (@id, @listId, @name, @brand, @size, @qty, @sectionId, @done, @source, @barcode, @userId, @at, @at, 0)
@@ -112,7 +114,11 @@ export function applyOps(db: DB, userId: string, ops: Op[]): void {
         }
         case "item.delete": {
           const row = getItem.get(op.id) as { list_id: string } | undefined;
-          if (row && canSee(getList.get(row.list_id) as ListRow | undefined, userId)) deleteItem.run(op.at, op.id, op.at);
+          if (!row || !canSee(getList.get(row.list_id) as ListRow | undefined, userId)) break;
+          const removed = deleteItem.run(op.at, op.id, op.at).changes > 0;
+          // Removing something the weekly plan added, before buying it, means "not this week".
+          const it = getPlanned.get(op.id) as { name: string; source: string; done: number } | undefined;
+          if (removed && it?.source === "plan" && !it.done) snooze(db, row.list_id, it.name, 7, op.at);
           break;
         }
         case "items.clearDone":
@@ -189,7 +195,7 @@ export function getState(db: DB, userId: string) {
     qty: r.qty as number,
     sectionId: r.section_id as string,
     done: r.done === 1,
-    source: r.source as "text" | "scan" | "photo",
+    source: r.source as "text" | "scan" | "photo" | "plan",
     barcode: (r.barcode as string | null) ?? null,
     addedBy: (r.added_by_name as string | null) ?? null,
     addedById: (r.added_by_user as string | null) ?? null,
@@ -243,50 +249,4 @@ export function tripHistory(db: DB, userId: string, listId: string, limit = 20) 
     .all(listId, limit) as Array<{ id: string; startedAt: number; endedAt: number | null; shopper: string; count: number }>;
   const items = db.prepare("SELECT name, brand, size, qty FROM purchases WHERE trip_id = ? ORDER BY bought_at");
   return trips.filter((t) => t.count > 0).map((t) => ({ ...t, items: items.all(t.id) }));
-}
-
-const DAY = 24 * 60 * 60 * 1000;
-
-/**
- * Things you buy regularly that aren't on the list yet, most overdue first.
- * "Due" compares days since you last bought it with your usual gap between buying it.
- */
-export function suggestions(db: DB, listId: string, now = Date.now(), limit = 8) {
-  const rows = db
-    .prepare(
-      `SELECT name_key AS key, name, brand, size, section_id AS sectionId, bought_at AS boughtAt
-       FROM purchases WHERE list_id = ? AND bought_at > ? ORDER BY bought_at`,
-    )
-    .all(listId, now - 180 * DAY) as Array<{ key: string; name: string; brand: string | null; size: string | null; sectionId: string; boughtAt: number }>;
-
-  const onList = new Set(
-    (db.prepare("SELECT name FROM items WHERE list_id = ? AND deleted = 0").all(listId) as Array<{ name: string }>).map((r) => nameKey(r.name)),
-  );
-
-  const byKey = new Map<string, typeof rows>();
-  for (const r of rows) byKey.set(r.key, [...(byKey.get(r.key) ?? []), r]);
-
-  const out = [];
-  for (const [key, list] of byKey) {
-    if (list.length < 2 || onList.has(key)) continue;
-    // Buys within a day of each other count once (two packs on one trip).
-    const days: number[] = [];
-    for (const r of list) if (!days.length || r.boughtAt - days[days.length - 1] > DAY) days.push(r.boughtAt);
-    if (days.length < 2) continue;
-    const gaps = days.slice(1).map((d, i) => d - days[i]);
-    const usualGap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-    const sinceLast = now - days[days.length - 1];
-    const latest = list[list.length - 1];
-    out.push({
-      name: latest.name,
-      brand: latest.brand,
-      size: latest.size,
-      sectionId: latest.sectionId,
-      timesBought: days.length,
-      lastBoughtDaysAgo: Math.floor(sinceLast / DAY),
-      usualEveryDays: Math.round(usualGap / DAY),
-      due: sinceLast / usualGap,
-    });
-  }
-  return out.filter((s) => s.due >= 0.8).sort((a, b) => b.due - a.due).slice(0, limit);
 }

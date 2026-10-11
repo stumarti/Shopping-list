@@ -106,6 +106,110 @@ const MIGRATIONS: Array<(db: DB) => void> = [
       CREATE INDEX purchases_trip ON purchases(trip_id);
     `);
   },
+  // v3: read-only price comparison between stores
+  (db) => {
+    db.exec(`
+      CREATE TABLE price_cache (
+        store TEXT NOT NULL,
+        query TEXT NOT NULL,
+        match_json TEXT NOT NULL,
+        fetched_at INTEGER NOT NULL,
+        PRIMARY KEY (store, query)
+      );
+      CREATE TABLE price_checks (
+        id TEXT PRIMARY KEY,
+        list_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        finished_at INTEGER,
+        result TEXT NOT NULL,
+        error TEXT
+      );
+      CREATE INDEX price_checks_list ON price_checks(list_id, started_at);
+    `);
+  },
+  // v4: online orders (basket filling), one per person per store run
+  (db) => {
+    db.exec(`
+      CREATE TABLE orders (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        list_id TEXT NOT NULL,
+        store TEXT NOT NULL,
+        status TEXT NOT NULL,
+        slot_kind TEXT NOT NULL,
+        slot_label TEXT NOT NULL,
+        basket_url TEXT NOT NULL,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX orders_user_list ON orders(user_id, list_id, created_at);
+      CREATE TABLE order_lines (
+        order_id TEXT NOT NULL REFERENCES orders(id),
+        item_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        brand TEXT,
+        size TEXT,
+        qty INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        chosen_json TEXT,
+        options_json TEXT,
+        error TEXT,
+        PRIMARY KEY (order_id, item_id)
+      );
+    `);
+  },
+  // v5: receipts, prices on purchases, weekly planning
+  (db) => {
+    db.exec(`
+      CREATE TABLE receipts (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        list_id TEXT NOT NULL,
+        store TEXT,
+        purchased_on TEXT,
+        total REAL,
+        fingerprint TEXT,
+        status TEXT NOT NULL,
+        source TEXT NOT NULL,
+        file_name TEXT,
+        error TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX receipts_list ON receipts(list_id, purchased_on);
+      CREATE TABLE receipt_lines (
+        receipt_id TEXT NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+        idx INTEGER NOT NULL,
+        raw TEXT NOT NULL,
+        name TEXT NOT NULL,
+        brand TEXT,
+        size TEXT,
+        qty INTEGER NOT NULL,
+        unit_price REAL,
+        line_total REAL,
+        section_id TEXT NOT NULL,
+        is_product INTEGER NOT NULL,
+        PRIMARY KEY (receipt_id, idx)
+      );
+      ALTER TABLE purchases ADD COLUMN price REAL;
+      ALTER TABLE purchases ADD COLUMN receipt_id TEXT;
+      CREATE TABLE list_settings (
+        list_id TEXT PRIMARY KEY,
+        auto_add INTEGER NOT NULL DEFAULT 0,
+        horizon_days INTEGER NOT NULL DEFAULT 7,
+        last_auto_run INTEGER
+      );
+      CREATE TABLE item_snoozes (
+        list_id TEXT NOT NULL,
+        name_key TEXT NOT NULL,
+        until INTEGER NOT NULL,
+        PRIMARY KEY (list_id, name_key)
+      );
+    `);
+  },
 ];
 
 export function openDb(file: string): DB {

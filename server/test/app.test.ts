@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { NotUnderstoodError, parseTextLocally, type Assistant } from "../src/claude.js";
+import { NotUnderstoodError, parseTextLocally, type Assistant } from "../src/ai/index.js";
 import { categorize, sectionFromOffTags } from "../src/sections.js";
 import { setup as base } from "./helpers.js";
 
@@ -49,7 +49,7 @@ describe("barcode lookup", () => {
 });
 
 describe("photo identification", () => {
-  const fake = (impl: Assistant["identifyPhoto"]): Assistant => ({ identifyPhoto: impl, parseText: async () => [] });
+  const fake = (impl: Assistant["identifyPhoto"]): Assistant => ({ name: "fake", identifyPhoto: impl, parseText: async () => [], matchOffer: vi.fn(), classify: vi.fn(), readReceipt: vi.fn() });
   const image = "A".repeat(200);
 
   it("returns 503 when no API key is configured", async () => {
@@ -89,7 +89,7 @@ describe("text entry", () => {
     const parseText = vi.fn().mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce([
       { name: "Milk", qty: 1, brand: null, size: "2 L", sectionId: "dairy" },
     ]);
-    const { call } = await setup({ assistant: { identifyPhoto: vi.fn(), parseText } });
+    const { call } = await setup({ assistant: { name: "fake", identifyPhoto: vi.fn(), parseText, matchOffer: vi.fn(), classify: vi.fn(), readReceipt: vi.fn() } });
     const first = await (await call("/api/parse", { method: "POST", body: JSON.stringify({ text: "2L milk, bread" }) })).json();
     expect(first.via).toBe("local");
     const second = await (await call("/api/parse", { method: "POST", body: JSON.stringify({ text: "2L milk" }) })).json();
@@ -121,5 +121,31 @@ describe("categorize", () => {
 describe("parseTextLocally", () => {
   it("handles '3x' quantities", () => {
     expect(parseTextLocally("3x yoghurt")[0]).toMatchObject({ name: "Yoghurt", qty: 3, sectionId: "dairy" });
+  });
+});
+
+describe("non-food barcodes", () => {
+  it("falls through to Open Beauty / Products / Pet Food Facts and files them in the right aisle", async () => {
+    const hosts: string[] = [];
+    const fetchFn = vi.fn(async (url: string | URL | Request) => {
+      const host = new URL(String(url)).host;
+      hosts.push(host);
+      if (host === "world.openproductsfacts.org") {
+        return new Response(JSON.stringify({ status: 1, product: { product_name: "Fairy Original Washing Up Liquid", brands: "Fairy", quantity: "433 ml" } }));
+      }
+      return new Response(JSON.stringify({ status: 0 }), { status: 404 });
+    });
+    const { call } = await setup({ fetchFn: fetchFn as unknown as typeof fetch });
+    const body = await (await call("/api/barcode/8001090000000")).json();
+    expect(body.product).toMatchObject({ name: "Fairy Original Washing Up Liquid", sectionId: "household", source: "openproductsfacts" });
+    expect(hosts).toEqual(["world.openfoodfacts.org", "world.openbeautyfacts.org", "world.openproductsfacts.org"]);
+  });
+
+  it("reports the lookup as unavailable only when nothing was found and a database was unreachable", async () => {
+    const fetchFn = vi.fn(async (url: string | URL | Request) =>
+      String(url).includes("openfoodfacts") ? new Response("down", { status: 503 }) : new Response(JSON.stringify({ status: 0 })),
+    );
+    const { call } = await setup({ fetchFn: fetchFn as unknown as typeof fetch });
+    expect((await call("/api/barcode/12345670")).status).toBe(502);
   });
 });

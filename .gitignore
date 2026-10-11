@@ -5,3 +5,5 @@ data/
 .expo/
 *.log
 .DS_Store
+receipts-inbox/*
+!receipts-inbox/.gitkeep

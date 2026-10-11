@@ -1,7 +1,7 @@
 // Mirrors server/src/sync.ts. Changes are applied locally straight away and queued as ops;
 // the server is the source of truth, keeps the newest write per item and decides who can see what.
 
-export type Source = "text" | "scan" | "photo";
+export type Source = "text" | "scan" | "photo" | "plan";
 
 export const HOUSEHOLD_LIST = "household";
 

@@ -9,7 +9,7 @@ import { groupItems, itemDetail, type Item } from "../lib/ops";
 import { useStore, type SyncStatus } from "../lib/store";
 import { avatarColor, colors, initial, radius } from "../lib/theme";
 
-const SOURCE_ICON: Record<Item["source"], IconName> = { scan: "barcode-outline", photo: "camera-outline", text: "create-outline" };
+const SOURCE_ICON: Record<Item["source"], IconName> = { scan: "barcode-outline", photo: "camera-outline", text: "create-outline", plan: "calendar-outline" };
 
 function syncLabel(status: SyncStatus, lastSyncAt: number | null, waiting: number): string {
   switch (status) {
@@ -150,6 +150,7 @@ export default function ListScreen() {
           </Pressable>
           <View style={{ flexDirection: "row", gap: 6 }}>
             <IconButton icon="swap-vertical" label="Change aisle order" onPress={() => router.push("/aisles")} />
+            <IconButton icon="storefront-outline" label="Shop online" onPress={() => router.push("/online")} />
             <IconButton icon="people-outline" label="Sharing and sync" onPress={() => router.push("/settings")} />
           </View>
         </View>
@@ -225,9 +226,17 @@ export default function ListScreen() {
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
+        <Pressable accessibilityRole="button" onPress={() => router.push("/plan")} style={styles.planLink}>
+          <Icon name="calendar-outline" size={18} color={colors.accent} />
+          <Text style={styles.planLinkText}>
+            {usual.length ? `This week: ${usual.length} thing${usual.length === 1 ? "" : "s"} you'll probably need` : "Plan this week from your receipts"}
+          </Text>
+          <Icon name="chevron-forward" size={16} color={colors.muted} />
+        </Pressable>
+
         {usual.some((u) => !onList.has(u.name.toLowerCase())) ? (
           <View style={{ gap: 8 }}>
-            <Text style={styles.usualTitle}>Usual items you might need</Text>
+            <Text style={styles.usualTitle}>Tap to add</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {usual
                 .filter((u) => !onList.has(u.name.toLowerCase()))
@@ -238,7 +247,7 @@ export default function ListScreen() {
                     accessibilityLabel={`Add ${u.name}, last bought ${u.lastBoughtDaysAgo} days ago`}
                     onPress={() => {
                       void Haptics.selectionAsync();
-                      addItems([{ name: u.name, brand: u.brand, size: u.size, sectionId: u.sectionId }], "text");
+                      addItems([{ name: u.name, brand: u.brand, size: u.size, qty: u.qty, sectionId: u.sectionId }], "plan");
                     }}
                     style={styles.usualChip}
                   >
@@ -305,12 +314,17 @@ export default function ListScreen() {
                           {itemDetail(item) ? <Text style={styles.itemMeta}>{itemDetail(item)}</Text> : null}
                         </View>
                         <Icon name={SOURCE_ICON[item.source]} size={16} color={colors.faint} />
-                        <View
-                          accessibilityLabel={mine ? "Added by you" : `Added by ${item.addedBy ?? "someone else"}`}
-                          style={[styles.avatar, { backgroundColor: avatarColor(mine) }]}
-                        >
-                          <Text style={styles.avatarText}>{initial(item.addedBy ?? user?.name ?? null)}</Text>
-                        </View>
+                        {/* Items the weekly plan added have no person behind them: the calendar icon says where they came from. */}
+                        {item.source === "plan" && !item.addedById ? (
+                          <View accessibilityLabel="Added by the weekly plan" style={styles.avatar} />
+                        ) : (
+                          <View
+                            accessibilityLabel={mine ? "Added by you" : `Added by ${item.addedBy ?? "someone else"}`}
+                            style={[styles.avatar, { backgroundColor: avatarColor(mine) }]}
+                          >
+                            <Text style={styles.avatarText}>{initial(item.addedBy ?? user?.name ?? null)}</Text>
+                          </View>
+                        )}
                       </Pressable>
                     );
                   })}
@@ -356,6 +370,8 @@ const styles = StyleSheet.create({
   addInput: { flex: 1, height: 48, borderRadius: 14, paddingHorizontal: 16 },
   addButton: { width: 48, height: 48, borderRadius: 14, backgroundColor: colors.ink, alignItems: "center", justifyContent: "center" },
   list: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 24, gap: 14 },
+  planLink: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.accentTint, borderRadius: radius.md, paddingHorizontal: 14, minHeight: 48 },
+  planLinkText: { flex: 1, fontSize: 15, fontWeight: "700", color: colors.accentInk },
   usualTitle: { fontSize: 13, fontWeight: "700", color: colors.muted, paddingHorizontal: 4 },
   usualChip: { flexDirection: "row", alignItems: "center", gap: 6, height: 40, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   usualName: { fontSize: 14, fontWeight: "600", color: colors.ink },

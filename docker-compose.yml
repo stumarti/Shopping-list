@@ -5,8 +5,27 @@ services:
     ports:
       - "8787:8787"
     env_file: .env
+    # Lets the server reach Ollama running on the same machine (host.docker.internal) on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - shopping-data:/data
+      # Drop old receipts (photos or PDFs) in here to import them; see README.
+      - ./receipts-inbox:/receipts-inbox
+
+  # Optional: read-only Tesco/Dunnes price checks. Start with: docker compose --profile prices up -d
+  worker:
+    build: ./worker
+    profiles: ["prices"]
+    restart: unless-stopped
+    env_file: .env
+    # Not published: only the server talks to it, over the private Compose network.
+    expose:
+      - "8788"
+    shm_size: "1gb"
+    volumes:
+      - worker-data:/data
 
 volumes:
   shopping-data:
+  worker-data:
