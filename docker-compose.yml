@@ -10,6 +10,8 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - shopping-data:/data
+      # Drop old receipts (photos or PDFs) in here to import them; see README.
+      - ./receipts-inbox:/receipts-inbox
 
   # Optional: read-only Tesco/Dunnes price checks. Start with: docker compose --profile prices up -d
   worker:

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openDb } from "../src/db.js";
-import { getState, suggestions } from "../src/sync.js";
+import { plan } from "../src/planning.js";
+import { getState } from "../src/sync.js";
 import { milk, setup } from "./helpers.js";
 
 async function two() {
@@ -169,7 +170,7 @@ describe("usual items", () => {
     buy.run("Crisps", "crisps", "cupboard", 50 * DAY);
     buy.run("Crisps", "crisps", "cupboard", 50 * DAY + 1000);
 
-    const out = suggestions(db, "household", now);
+    const out = plan(db, "household", now);
     expect(out.map((s) => s.name)).toEqual(["Milk"]);
     expect(out[0]).toMatchObject({ lastBoughtDaysAgo: 8, usualEveryDays: 7, timesBought: 4 });
   });
@@ -191,11 +192,11 @@ describe("upgrading an existing database", () => {
     old.close();
 
     const db = openDb(file);
-    expect(db.pragma("user_version", { simple: true })).toBe(4);
+    expect(db.pragma("user_version", { simple: true })).toBe(5);
     db.prepare("INSERT INTO users (id, name, created_at) VALUES ('u', 'Sam', 0)").run();
     const state = getState(db, "u");
     expect(state.items).toMatchObject([{ id: "old", listId: "household", addedBy: "Sam" }]);
     db.close();
-    expect(openDb(file).pragma("user_version", { simple: true })).toBe(4); // re-opening is a no-op
+    expect(openDb(file).pragma("user_version", { simple: true })).toBe(5); // re-opening is a no-op
   });
 });

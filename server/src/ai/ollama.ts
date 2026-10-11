@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { FetchFn } from "../products.js";
 import type { Section } from "../sections.js";
-import { classifyTask, identifyTask, offerTask, parseTask } from "./prompts.js";
-import { NotUnderstoodError, type Assistant, type ImageMediaType, type StoreProduct, type WantedItem } from "./types.js";
+import { classifyTask, identifyTask, offerTask, parseTask, receiptTask } from "./prompts.js";
+import { NotUnderstoodError, type Assistant, type ImageMediaType, type ReceiptFile, type StoreProduct, type WantedItem } from "./types.js";
 
 /**
  * A model running locally under Ollama (e.g. on the Mac mini or the Windows PC).
@@ -69,5 +69,13 @@ export class OllamaAssistant implements Assistant {
   classify(item: WantedItem, candidates: StoreProduct[]) {
     const t = classifyTask(item, candidates);
     return this.run(t.schema, t.system, t.prompt);
+  }
+
+  readReceipt(files: ReceiptFile[], sections: Section[], knownNames: string[]) {
+    if (files.some((f) => f.mediaType === "application/pdf")) {
+      throw new NotUnderstoodError("The local model can't read PDFs. Use a photo, or set AI_BACKEND=ollama-then-claude.");
+    }
+    const t = receiptTask(sections, knownNames);
+    return this.run(t.schema, t.system, t.prompt, files.map((f) => f.data));
   }
 }

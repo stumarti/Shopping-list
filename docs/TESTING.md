@@ -74,7 +74,19 @@ Tick each box as you go. ⚠️ marks the things most likely to need a fix.
 - [ ] ⚠️ Open the Tesco app: the basket has exactly those products and quantities
 - [ ] Your partner links their own account; their order goes to their basket, not yours
 
-## 9. Local AI (optional)
+## 9. Receipts and the weekly plan
+
+- [ ] *This week* → *Receipts* → **Photograph a receipt**: within about 30 seconds you see every line with tidy names
+- [ ] ⚠️ Check the names, prices and quantities against the paper. Note any that are badly wrong (abbreviations, multibuys, weighed fruit and veg)
+- [ ] Untick the bag levy and discounts → **Add items to history**
+- [ ] Add the same receipt again: the app says it's already added
+- [ ] Try a long receipt in two photos, and a Tesco PDF e-receipt
+- [ ] Copy 10 or so old receipts into `receipts-inbox/` on the server: within a few minutes they're in `done/` and show in the app as "imported"
+- [ ] ⚠️ *This week*: do the suggestions look like your real weekly shop? Are the quantities right?
+- [ ] Switch on **Keep my list topped up**: due items appear on the list with a calendar icon. Remove one: it doesn't come back this week
+- [ ] **Trends**: monthly spend looks about right; after importing a year of receipts, seasonal items show up
+
+## 10. Local AI (optional)
 
 - [ ] Install [Ollama](https://ollama.com) on the PC or Mac mini and pull a vision model
 - [ ] Set `OLLAMA_URL`, `OLLAMA_MODEL` and `AI_BACKEND=ollama` (or `ollama-then-claude`), then restart the server

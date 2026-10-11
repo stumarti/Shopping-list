@@ -65,7 +65,7 @@ function fakes() {
     "Tesco:Sourdough": { match: offer(3), confidence: "medium" },
   };
   const matchOffer = vi.fn(async (item: WantedItem, store: string) => prices[`${store}:${item.name}`] ?? { match: null, confidence: "high" as const });
-  const assistant: Assistant = { name: "fake", identifyPhoto: vi.fn(), parseText: vi.fn(), matchOffer, classify: vi.fn() };
+  const assistant: Assistant = { name: "fake", identifyPhoto: vi.fn(), parseText: vi.fn(), matchOffer, classify: vi.fn(), readReceipt: vi.fn() };
   return { worker, assistant, matchOffer };
 }
 

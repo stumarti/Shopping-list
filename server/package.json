@@ -14,6 +14,7 @@
     "@hono/node-server": "^2.1.4",
     "better-sqlite3": "^13.0.3",
     "hono": "^4.13.13",
+    "sharp": "^0.35.5",
     "zod": "^4.6.5"
   },
   "devDependencies": {

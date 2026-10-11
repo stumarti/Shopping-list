@@ -68,6 +68,9 @@ export interface ParsedItem {
 }
 
 export interface Suggestion {
+  key?: string;
+  qty?: number;
+  reason?: string;
   name: string;
   brand: string | null;
   size: string | null;
@@ -95,6 +98,7 @@ export interface Health {
   ai?: { backend: string; name: string } | null;
   priceCheck?: boolean;
   onlineOrdering?: boolean;
+  receipts?: boolean;
   stores?: Array<{ id: string; name: string }>;
 }
 
@@ -183,6 +187,83 @@ export type RemoteInput =
   | { type: "key"; key: "Enter" | "Tab" | "Backspace" | "Escape" }
   | { type: "scroll"; dy: number }
   | { type: "back" };
+
+export interface Prediction {
+  key: string;
+  name: string;
+  brand: string | null;
+  size: string | null;
+  sectionId: string;
+  qty: number;
+  dueInDays: number;
+  lastBoughtDaysAgo: number;
+  usualEveryDays: number | null;
+  timesBought: number;
+  seasonal: { peakMonths: number[]; indexNow: number } | null;
+  confidence: "high" | "medium" | "low";
+  reason: string;
+}
+
+export interface PlanSettings {
+  autoAdd: boolean;
+  horizonDays: number;
+  lastAutoRun: number | null;
+}
+
+export interface ReceiptLine {
+  idx?: number;
+  raw: string;
+  name: string;
+  brand: string | null;
+  size: string | null;
+  qty: number;
+  unitPrice: number | null;
+  lineTotal: number | null;
+  sectionId: string;
+  isProduct: boolean;
+}
+
+export interface Receipt {
+  id: string;
+  listId: string;
+  store: string | null;
+  purchasedOn: string | null;
+  total: number | null;
+  status: "review" | "confirmed" | "failed";
+  source: "app" | "inbox";
+  fileName: string | null;
+  createdAt: number;
+  lines: ReceiptLine[];
+}
+
+export interface ReceiptSummary {
+  id: string;
+  store: string | null;
+  purchasedOn: string | null;
+  total: number | null;
+  status: Receipt["status"];
+  source: Receipt["source"];
+  items: number;
+}
+
+export interface Trends {
+  spend: Array<{ month: string; total: number; receipts: number }>;
+  historyFrom: string | null;
+  hasSeasons: boolean;
+  inSeasonNow: SeasonalItem[];
+  seasonal: SeasonalItem[];
+  top: Array<{ name: string; sectionId: string; times: number }>;
+}
+
+export interface SeasonalItem {
+  key: string;
+  name: string;
+  sectionId: string;
+  peakMonths: number[];
+  peakLabel: string;
+  index: number[];
+  timesBought: number;
+}
 
 export function baseUrl(serverUrl: string): string {
   const trimmed = serverUrl.trim().replace(/\/+$/, "");
@@ -274,6 +355,23 @@ export const api = {
   changeLine: (c: Connection, id: string, itemId: string, change: { choose: string } | { skip: true } | { qty: number } | { search: string }) =>
     request<{ order: Order }>(c, `/api/orders/${encodeURIComponent(id)}/lines/${encodeURIComponent(itemId)}`, { method: "PATCH", body: JSON.stringify(change) }, 60000),
   fillBasket: (c: Connection, id: string) => request<{ ok: true }>(c, `/api/orders/${encodeURIComponent(id)}/fill`, post()),
+
+  plan: (c: Connection, listId: string, horizon?: number) =>
+    request<{ predictions: Prediction[]; settings: PlanSettings }>(c, `/api/lists/${encodeURIComponent(listId)}/plan${horizon ? `?horizon=${horizon}` : ""}`),
+  addPlanned: (c: Connection, listId: string, keys: string[], horizon?: number) =>
+    request<{ added: string[] }>(c, `/api/lists/${encodeURIComponent(listId)}/plan/add`, post({ keys, horizon })),
+  planSettings: (c: Connection, listId: string, s: { autoAdd?: boolean; horizonDays?: number }) =>
+    request<{ settings: PlanSettings }>(c, `/api/lists/${encodeURIComponent(listId)}/plan/settings`, { method: "PUT", body: JSON.stringify(s) }),
+  trends: (c: Connection, listId: string) => request<Trends>(c, `/api/lists/${encodeURIComponent(listId)}/trends`),
+
+  receipts: (c: Connection, listId: string) => request<{ receipts: ReceiptSummary[] }>(c, `/api/lists/${encodeURIComponent(listId)}/receipts`),
+  readReceipt: (c: Connection, listId: string, files: Array<{ data: string; mediaType: string }>) =>
+    request<{ receipt: Receipt }>(c, `/api/lists/${encodeURIComponent(listId)}/receipts`, post({ files }), 180000),
+  receipt: (c: Connection, id: string) => request<{ receipt: Receipt }>(c, `/api/receipts/${encodeURIComponent(id)}`),
+  updateReceipt: (c: Connection, id: string, r: { store: string | null; date: string | null; total: number | null; lines: ReceiptLine[] }) =>
+    request<{ receipt: Receipt }>(c, `/api/receipts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(r) }),
+  confirmReceipt: (c: Connection, id: string) => request<{ receipt: Receipt }>(c, `/api/receipts/${encodeURIComponent(id)}/confirm`, post()),
+  deleteReceipt: (c: Connection, id: string) => request<{ ok: true }>(c, `/api/receipts/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   barcode: (c: Connection, code: string) => request<{ found: boolean; product?: Product }>(c, `/api/barcode/${encodeURIComponent(code)}`),
   rememberBarcode: (c: Connection, code: string, p: Omit<Product, "barcode">) =>

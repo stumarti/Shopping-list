@@ -48,6 +48,15 @@ export class LocalFirstAssistant implements Assistant {
     return this.cloud.matchOffer(...args);
   }
 
+  async readReceipt(...args: Parameters<Assistant["readReceipt"]>) {
+    try {
+      return await this.local.readReceipt(...args);
+    } catch (err) {
+      console.warn("local model couldn't read the receipt, asking Claude", err);
+      return this.cloud.readReceipt(...args);
+    }
+  }
+
   async classify(...args: Parameters<Assistant["classify"]>) {
     try {
       return await this.local.classify(...args);

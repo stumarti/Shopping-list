@@ -49,7 +49,7 @@ describe("barcode lookup", () => {
 });
 
 describe("photo identification", () => {
-  const fake = (impl: Assistant["identifyPhoto"]): Assistant => ({ name: "fake", identifyPhoto: impl, parseText: async () => [], matchOffer: vi.fn(), classify: vi.fn() });
+  const fake = (impl: Assistant["identifyPhoto"]): Assistant => ({ name: "fake", identifyPhoto: impl, parseText: async () => [], matchOffer: vi.fn(), classify: vi.fn(), readReceipt: vi.fn() });
   const image = "A".repeat(200);
 
   it("returns 503 when no API key is configured", async () => {
@@ -89,7 +89,7 @@ describe("text entry", () => {
     const parseText = vi.fn().mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce([
       { name: "Milk", qty: 1, brand: null, size: "2 L", sectionId: "dairy" },
     ]);
-    const { call } = await setup({ assistant: { name: "fake", identifyPhoto: vi.fn(), parseText, matchOffer: vi.fn(), classify: vi.fn() } });
+    const { call } = await setup({ assistant: { name: "fake", identifyPhoto: vi.fn(), parseText, matchOffer: vi.fn(), classify: vi.fn(), readReceipt: vi.fn() } });
     const first = await (await call("/api/parse", { method: "POST", body: JSON.stringify({ text: "2L milk, bread" }) })).json();
     expect(first.via).toBe("local");
     const second = await (await call("/api/parse", { method: "POST", body: JSON.stringify({ text: "2L milk" }) })).json();

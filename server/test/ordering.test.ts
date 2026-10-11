@@ -116,7 +116,7 @@ describe("starting an order", () => {
 
   it("asks the AI only when word matching finds no exact product", async () => {
     const classify = vi.fn(async () => ({ exact: 0, similar: [1] }));
-    const assistant: Assistant = { name: "fake", identifyPhoto: vi.fn(), parseText: vi.fn(), matchOffer: vi.fn(), classify };
+    const assistant: Assistant = { name: "fake", identifyPhoto: vi.fn(), parseText: vi.fn(), matchOffer: vi.fn(), classify, readReceipt: vi.fn() };
     const { sam } = await env(fakeWorker(), assistant);
     const { id } = await (await sam("/api/orders", "POST", { listId: "household", store: "test" })).json();
     const order = await settle(sam, id, "matching");

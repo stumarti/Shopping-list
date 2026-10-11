@@ -91,3 +91,35 @@ export function classifyTask(item: WantedItem, candidates: StoreProduct[]) {
     prompt: `Shopping list item: ${wanted}\n\nSearch results:\n${list}`,
   };
 }
+
+export function receiptTask(sections: Section[], knownNames: string[]) {
+  return {
+    schema: z.object({
+      store: z.string().nullable().describe("Shop name, e.g. 'Tesco', 'Dunnes Stores', 'Lidl'"),
+      date: z.string().nullable().describe("Purchase date as YYYY-MM-DD, or null if not printed"),
+      total: z.number().nullable().describe("Amount paid in euro"),
+      lines: z.array(
+        z.object({
+          raw: z.string().describe("The line exactly as printed"),
+          name: z.string().describe("Plain product name, e.g. 'Whole milk'"),
+          brand: z.string().nullable(),
+          size: z.string().nullable().describe("Pack size such as '2 L' or '500 g', if printed"),
+          qty: z.number().int().describe("How many were bought (1 unless a quantity or weight line says otherwise)"),
+          unitPrice: z.number().nullable(),
+          lineTotal: z.number().nullable().describe("Price charged for this line in euro (negative for discounts)"),
+          sectionId: sectionEnum(sections),
+          isProduct: z.boolean().describe("False for discounts, multibuy savings, bag levy, deposits, totals, VAT, payment lines"),
+        }),
+      ),
+    }),
+    system:
+      "You read Irish supermarket receipts (paper photos or PDFs) for a household shopping app. " +
+      "List every line in order. Receipts abbreviate heavily: expand them into a plain product name, a brand if one is clear, and a size. " +
+      "If several photos are given they are parts of the same receipt; don't list the overlapping lines twice. " +
+      "If a product is the same thing as one of the household's known names, use that exact name so history lines up." +
+      (knownNames.length ? `\nKnown names: ${knownNames.slice(0, 300).join("; ")}` : "") +
+      "\nSupermarket sections:\n" +
+      sectionList(sections),
+    prompt: "Read this receipt.",
+  };
+}

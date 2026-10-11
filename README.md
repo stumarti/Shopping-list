@@ -76,6 +76,17 @@ From the store icon on the list: **Shop online** → pick Tesco or Dunnes.
 
 This uses the same worker as price checks (`docker compose --profile prices up -d`). **Status:** the whole flow is built and tested against a pretend store, but the Tesco and Dunnes parts are still to be written against the live sites. See [docs/STORE-AUTOMATION.md](docs/STORE-AUTOMATION.md). To try the flow with the pretend store, run `cd worker && npx tsx test/fixtures/test-store.ts` and set `TEST_STORE_URL=http://<that machine>:8099` for the worker (password `correct-horse`).
 
+### Receipts, your weekly plan and seasonal trends
+
+The app learns what you buy from **receipts** and from items you tick off, then works out **what you'll need this week**.
+
+- **Add receipts in the app:** go to *This week* → *Receipts*. Photograph a receipt (several photos for a long one), pick photos you already took, or choose a PDF e-receipt. The AI reads every line (it handles abbreviations like "AVONMORE FRSH MLK 2L"). You check it, untick anything that isn't a product, and add it to your history. The same receipt is never counted twice.
+- **Import a pile of old receipts:** copy photos or PDFs into the `receipts-inbox` folder next to `docker-compose.yml`. One file per receipt; a sub-folder of photos counts as one long receipt. The server reads them in the background and moves each to `done/`, `duplicate/` or `failed/` (with a note saying why). iPhone **HEIC** photos can't be read: set *Settings → Camera → Formats → Most Compatible*, or export as JPEG. Cost is roughly a few cents per receipt with Claude; set `CLAUDE_RECEIPT_MODEL` for a cheaper model.
+- **This week:** each product's usual gap between purchases (ignoring the odd skipped week) and its usual quantity predict when it's due. With a year or more of history it also learns **seasons**: it suggests soup in October and sprouts in December, and stops suggesting strawberries in winter. Things you seem to have stopped buying drop out.
+- **Keep my list topped up:** switch this on and the server adds the "very likely" items to the list as they come due (checked hourly). Remove one and it's skipped for a week.
+- **Add & fill basket:** from *This week*, add the plan to your list and go straight to filling your Tesco/Dunnes basket.
+- **Trends:** spend per month (from receipts), what's in season for you now, your seasonal favourites month by month, and what you buy most.
+
 ## 2. Run the app (from Windows)
 
 You don't need a Mac. Install [Node.js LTS](https://nodejs.org) and put the **Expo Go** app on your iPhone.
@@ -155,6 +166,10 @@ All `/api/*` routes except health, setup and join require `Authorization: Bearer
 | `POST /api/orders` | `{listId, store}` → checks the slot, then matches every item in the background |
 | `GET /api/orders/:id`, `PATCH /api/orders/:id/lines/:itemId` | Review an order; `{choose}`, `{skip}`, `{qty}` or `{search}` per item |
 | `POST /api/orders/:id/fill` | Add everything to your store basket |
+| `GET /api/lists/:id/plan`, `POST …/plan/add`, `PUT …/plan/settings` | Weekly plan; add chosen items; switch automatic top-up on or off |
+| `GET /api/lists/:id/trends` | Spend per month, seasonal items, most bought |
+| `POST /api/lists/:id/receipts`, `GET …/receipts` | Read a receipt (photos or PDF) for review; list receipts |
+| `GET/PATCH/DELETE /api/receipts/:id`, `POST /api/receipts/:id/confirm` | Review, correct, delete, or add a receipt to your history |
 | `POST /api/lists/:id/price-check` | Start a read-only Tesco/Dunnes price check (runs in the background) |
 | `GET /api/lists/:id/price-check`, `GET /api/price-checks/:id` | Latest / specific price check with progress and results |
 | `GET /api/barcode/:code` | Local cache, then Open Food Facts |

@@ -9,7 +9,9 @@ import { changeLine, fillBasket, getOrder, latestOrder, startOrder, WorkerError,
 import { getPriceCheck, latestPriceCheck, startPriceCheck, STORES, type PriceWorker } from "./pricing.js";
 import { lookupBarcode, rememberProduct, type FetchFn } from "./products.js";
 import { categorize } from "./sections.js";
-import { applyOps, finishTrip, getState, OpSchema, startTrip, suggestions, tripHistory, visibleListIds } from "./sync.js";
+import { addToList, getSettings, plan, runAutoPlan, setSettings, trends } from "./planning.js";
+import { confirmReceipt, deleteReceipt, DuplicateReceiptError, getReceipt, listReceipts, readReceipt, updateReceipt } from "./receipts.js";
+import { applyOps, finishTrip, getState, OpSchema, startTrip, tripHistory, visibleListIds } from "./sync.js";
 
 export interface AppDeps {
   db: DB;
@@ -52,6 +54,7 @@ export function createApp({ db, setupToken, assistant, aiBackend, priceWorker, s
       ai: assistant ? { backend: aiBackend ?? "custom", name: assistant.name } : null,
       priceCheck: Boolean(priceWorker && assistant),
       onlineOrdering: Boolean(storeWorker),
+      receipts: Boolean(assistant),
       stores: STORES,
       // Kept for older app versions.
       claude: Boolean(assistant),
@@ -150,10 +153,133 @@ export function createApp({ db, setupToken, assistant, aiBackend, priceWorker, s
     return c.json({ trips: tripHistory(db, c.get("user").id, listId) });
   });
 
+  // Kept for the list screen's "usual items" chips: now the weekly plan.
   app.get("/api/lists/:id/suggestions", (c) => {
     const listId = c.req.param("id");
     if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
-    return c.json({ suggestions: suggestions(db, listId) });
+    return c.json({ suggestions: plan(db, listId).slice(0, 8) });
+  });
+
+  // ---- Weekly plan: what you'll probably need, and keeping the list topped up ----
+
+  app.get("/api/lists/:id/plan", (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    const horizon = Number(c.req.query("horizon")) || undefined;
+    return c.json({ predictions: plan(db, listId, Date.now(), horizon), settings: getSettings(db, listId) });
+  });
+
+  app.post("/api/lists/:id/plan/add", async (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    const parsed = z.object({ keys: z.array(z.string()).max(200), horizon: z.number().int().min(1).max(31).optional() }).safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "bad request" }, 400);
+    const wanted = new Set(parsed.data.keys);
+    const added = addToList(db, listId, plan(db, listId, Date.now(), parsed.data.horizon).filter((p) => wanted.has(p.key)));
+    return c.json({ added });
+  });
+
+  app.put("/api/lists/:id/plan/settings", async (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    const parsed = z.object({ autoAdd: z.boolean().optional(), horizonDays: z.number().int().min(1).max(31).optional() }).safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "bad request" }, 400);
+    const settings = setSettings(db, listId, parsed.data);
+    if (parsed.data.autoAdd) runAutoPlan(db);
+    return c.json({ settings });
+  });
+
+  app.get("/api/lists/:id/trends", (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    return c.json(trends(db, listId));
+  });
+
+  // ---- Receipts ----
+
+  const ReceiptFiles = z.array(
+    z.object({ data: z.string().min(100), mediaType: z.enum(["image/jpeg", "image/png", "image/webp", "application/pdf"]) }),
+  );
+  const ReceiptEdit = z.object({
+    store: z.string().max(60).nullable(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    total: z.number().nullable(),
+    lines: z
+      .array(
+        z.object({
+          raw: z.string().max(200),
+          name: z.string().min(1).max(200),
+          brand: z.string().max(100).nullable(),
+          size: z.string().max(50).nullable(),
+          qty: z.number().int().min(1).max(99),
+          unitPrice: z.number().nullable(),
+          lineTotal: z.number().nullable(),
+          sectionId: z.string().max(64),
+          isProduct: z.boolean(),
+        }),
+      )
+      .max(400),
+  });
+  const receiptFor = (userId: string, id: string) => {
+    const r = getReceipt(db, id);
+    return r && canSeeList(userId, r.listId) ? r : null;
+  };
+
+  app.post("/api/lists/:id/receipts", bodyLimit({ maxSize: 30 * 1024 * 1024 }), async (c) => {
+    const listId = c.req.param("id");
+    const userId = c.get("user").id;
+    if (!canSeeList(userId, listId)) return c.json({ error: "unknown list" }, 404);
+    if (!assistant) return c.json({ error: "Reading receipts needs an AI backend on the server (ANTHROPIC_API_KEY or Ollama)." }, 503);
+    const parsed = z.object({ files: ReceiptFiles.min(1).max(10) }).safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "Send 1–10 photos or a PDF of the receipt." }, 400);
+    try {
+      const receipt = await readReceipt({ db, assistant, sections: sections() }, userId, listId, parsed.data.files);
+      return c.json({ receipt }, 201);
+    } catch (err) {
+      if (err instanceof DuplicateReceiptError) return c.json({ error: err.message, existingId: err.existingId }, 409);
+      if (err instanceof NotUnderstoodError) return c.json({ error: err.message || "Couldn't read that receipt. Try a flatter, brighter photo." }, 422);
+      console.error("receipt reading failed", err);
+      return c.json({ error: "Couldn't read the receipt right now." }, 502);
+    }
+  });
+
+  app.get("/api/lists/:id/receipts", (c) => {
+    const listId = c.req.param("id");
+    if (!canSeeList(c.get("user").id, listId)) return c.json({ error: "unknown list" }, 404);
+    return c.json({ receipts: listReceipts(db, listId) });
+  });
+
+  app.get("/api/receipts/:id", (c) => {
+    const r = receiptFor(c.get("user").id, c.req.param("id"));
+    return r ? c.json({ receipt: r }) : c.json({ error: "unknown receipt" }, 404);
+  });
+
+  app.patch("/api/receipts/:id", async (c) => {
+    if (!receiptFor(c.get("user").id, c.req.param("id"))) return c.json({ error: "unknown receipt" }, 404);
+    const parsed = ReceiptEdit.safeParse(await json(c.req));
+    if (!parsed.success) return c.json({ error: "bad request" }, 400);
+    const r = updateReceipt(db, c.req.param("id"), parsed.data);
+    return r ? c.json({ receipt: r }) : c.json({ error: "This receipt is already in your history." }, 409);
+  });
+
+  app.post("/api/receipts/:id/confirm", (c) => {
+    const userId = c.get("user").id;
+    if (!receiptFor(userId, c.req.param("id"))) return c.json({ error: "unknown receipt" }, 404);
+    try {
+      const r = confirmReceipt(db, c.req.param("id"), userId);
+      if (!r) return c.json({ error: "This receipt is already in your history." }, 409);
+      runAutoPlan(db);
+      return c.json({ receipt: r });
+    } catch (err) {
+      if (err instanceof DuplicateReceiptError) return c.json({ error: err.message, existingId: err.existingId }, 409);
+      throw err;
+    }
+  });
+
+  app.delete("/api/receipts/:id", (c) => {
+    if (!receiptFor(c.get("user").id, c.req.param("id"))) return c.json({ error: "unknown receipt" }, 404);
+    deleteReceipt(db, c.req.param("id"));
+    return c.json({ ok: true });
   });
 
   // ---- Price comparison (read-only) ----

@@ -53,6 +53,10 @@ export default function RootLayout() {
         <Stack.Screen name="online" />
         <Stack.Screen name="link/[store]" options={{ presentation: "fullScreenModal", gestureEnabled: false }} />
         <Stack.Screen name="order/[id]" />
+        <Stack.Screen name="plan" />
+        <Stack.Screen name="receipts/index" />
+        <Stack.Screen name="receipts/[id]" />
+        <Stack.Screen name="trends" />
         <Stack.Screen name="aisles" />
         <Stack.Screen name="settings" />
       </Stack>

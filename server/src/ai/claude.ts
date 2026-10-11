@@ -2,8 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { z } from "zod";
 import type { Section } from "../sections.js";
-import { classifyTask, identifyTask, offerTask, parseTask } from "./prompts.js";
-import { NotUnderstoodError, type Assistant, type ImageMediaType, type StoreProduct, type WantedItem } from "./types.js";
+import { classifyTask, identifyTask, offerTask, parseTask, receiptTask } from "./prompts.js";
+import { NotUnderstoodError, type Assistant, type ImageMediaType, type ReceiptFile, type StoreProduct, type WantedItem } from "./types.js";
 
 export class ClaudeAssistant implements Assistant {
   readonly name = "Claude";
@@ -13,12 +13,13 @@ export class ClaudeAssistant implements Assistant {
     private model = process.env.CLAUDE_MODEL || "claude-opus-5-5",
     /** Price matching reads whole results pages; a cheaper model can be set for it alone. */
     private priceModel = process.env.CLAUDE_PRICE_MODEL || model,
+    private receiptModel = process.env.CLAUDE_RECEIPT_MODEL || model,
   ) {}
 
-  private async run<T extends z.ZodType>(model: string, schema: T, system: string, content: Anthropic.Beta.BetaContentBlockParam[]) {
+  private async run<T extends z.ZodType>(model: string, schema: T, system: string, content: Anthropic.Beta.BetaContentBlockParam[], maxTokens = 2000) {
     const response = await this.client.beta.messages.parse({
       model,
-      max_tokens: 2000,
+      max_tokens: maxTokens,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
       system,
@@ -53,5 +54,16 @@ export class ClaudeAssistant implements Assistant {
   classify(item: WantedItem, candidates: StoreProduct[]) {
     const t = classifyTask(item, candidates);
     return this.run(this.model, t.schema, t.system, [{ type: "text", text: t.prompt }]);
+  }
+
+  readReceipt(files: ReceiptFile[], sections: Section[], knownNames: string[]) {
+    const t = receiptTask(sections, knownNames);
+    const content: Anthropic.Beta.BetaContentBlockParam[] = files.map((f) =>
+      f.mediaType === "application/pdf"
+        ? { type: "document" as const, source: { type: "base64" as const, media_type: "application/pdf" as const, data: f.data } }
+        : { type: "image" as const, source: { type: "base64" as const, media_type: f.mediaType, data: f.data } },
+    );
+    // A long receipt can run to 60+ lines.
+    return this.run(this.receiptModel, t.schema, t.system, [...content, { type: "text", text: t.prompt }], 12000);
   }
 }
