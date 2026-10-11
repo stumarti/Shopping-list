@@ -208,38 +208,64 @@ The app learns what you buy from **receipts** and from items you tick off, then 
 - **Add & fill basket:** from *This week*, add the plan to your list and go straight to filling your Tesco/Dunnes basket.
 - **Trends:** spend per month (from receipts), what's in season for you now, your seasonal favourites month by month, and what you buy most.
 
-## 2. Run the app (from Windows)
+## 2. Put the app on your iPhone (from Windows)
 
-You don't need a Mac. Install [Node.js LTS](https://nodejs.org) and put the **Expo Go** app on your iPhone.
+You don't need a Mac or Expo Go. Expo builds a real copy of the app in its cloud and you install it on your phone from a link. You'll need:
+
+- [Node.js LTS](https://nodejs.org) on your PC
+- a free [Expo account](https://expo.dev/signup)
+- the [Apple Developer Program](https://developer.apple.com/programs/) ($99/yr). Apple only lets you install your own apps on an iPhone with this.
+
+First, in `apps/mobile/app.json`, change `ios.bundleIdentifier` from `com.example.shoppinglist` to something you own, e.g. `ie.yourname.shoppinglist`. Then:
 
 ```sh
 cd apps/mobile
 npm install
-npx expo start
+npx eas-cli@latest login
+npx eas-cli@latest device:create      # once per phone/iPad: open the link it gives you on each device
 ```
 
-Scan the QR code with the iPhone camera, and the app opens in Expo Go. Edits on your PC reload on the phone instantly. The PC and phone need to be on the same Wi-Fi network (or run `npx expo start --tunnel`).
+Now pick how you want it.
+
+### Just use it: a normal app, no PC needed afterwards
+
+```sh
+npx eas-cli@latest build --platform ios --profile preview
+```
+
+After 10 to 20 minutes you get a link and a QR code. Open it on each registered iPhone or iPad and tap **Install**. The app sits on your home screen like any other. To get changes later, run the same build again and reinstall.
+
+### Work on it: your own app that reloads as you edit
+
+```sh
+npx eas-cli@latest build --platform ios --profile development   # once, and again only after adding a native package
+npm start                                                        # each time you sit down to work
+```
+
+Install the development build from its link the same way. Open it, and it finds `npm start` on your PC (same Wi-Fi, or `npx expo start --dev-client --tunnel`). Edits on the PC appear on the phone straight away. It's your app with your icon and name, with a small developer menu (shake the phone) on top.
+
+On iOS 16 and later, turn on **Settings → Privacy & Security → Developer Mode** the first time you open a build installed this way.
+
+### Signing in
 
 The first time the app opens, enter your name, the server address and the `APP_TOKEN`, then tap **Connect**. The server gives this device its own login, stored in the iPhone Keychain.
 
 Then, in **Sharing & sync** (the people icon):
-- **Invite someone** sends a link your partner opens on their phone to join as themselves.
+- **Invite someone** sends a link your partner opens on their phone to join as themselves. They need the app installed first, so register their phone with `device:create` before you build (or use TestFlight, below).
 - **Add another device for me** sends a link to sign your iPad in as you.
 
 Invite links work once and expire after 7 days.
 
-## 3. Install it properly (TestFlight)
+## 3. TestFlight (no device registration)
 
-Expo Go is for development. To install the app for real on both phones, you need the [Apple Developer Program](https://developer.apple.com/programs/) ($99/yr):
+Builds from section 2 only install on phones you registered. TestFlight avoids that, and is the easiest way to keep your partner's phone up to date: they get an update notification each time you build.
 
-1. In `apps/mobile/app.json`, change `ios.bundleIdentifier` from `com.example.shoppinglist` to something you own, e.g. `ie.yourname.shoppinglist`.
-2. Build in Expo's cloud and send it to TestFlight:
-   ```sh
-   npx eas-cli@latest login
-   npx eas-cli@latest build --platform ios --profile production
-   npx eas-cli@latest submit --platform ios
-   ```
-3. In App Store Connect → TestFlight, add yourself and your partner as testers.
+```sh
+npx eas-cli@latest build --platform ios --profile production
+npx eas-cli@latest submit --platform ios
+```
+
+In App Store Connect → TestFlight, add yourself and your partner as testers. They install Apple's TestFlight app and accept the invite.
 
 ## Development
 

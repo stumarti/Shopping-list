@@ -15,11 +15,11 @@ Tick each box as you go. ⚠️ marks the things most likely to need a fix.
 - [ ] ⚠️ From your phone's browser on home Wi-Fi, `http://<server-ip>:8787/api/health` loads (checks the firewall)
 - [ ] Optional: `tailscale serve --bg 8787`, then `https://<server>.<tailnet>.ts.net/api/health` loads on mobile data
 
-## 2. First sign-in (your iPhone, Expo Go)
+## 2. First sign-in (your iPhone)
 
-- [ ] `cd apps/mobile && npm install && npx expo start`, scan the QR code, and the app opens on the welcome screen
+- [ ] Build and install the app as in the README (section 2), open it, and it shows the welcome screen
 - [ ] Name, server address and setup token, then **Connect**: you land on the list
-- [ ] Close Expo Go completely and reopen: still signed in (the token is in the Keychain)
+- [ ] Swipe the app away completely and reopen: still signed in (the token is in the Keychain)
 - [ ] **Sharing & sync** shows your name and *Connected*; Server features shows Claude and the version
 
 ## 3. Adding items
@@ -35,7 +35,7 @@ Tick each box as you go. ⚠️ marks the things most likely to need a fix.
 ## 4. Sharing with your partner
 
 - [ ] **Invite someone** → the share sheet opens → send it by iMessage
-- [ ] ⚠️ On their iPhone (Expo Go installed), tapping the link opens the app on *Join the list*. If it doesn't open the app, note what happens
+- [ ] ⚠️ On their iPhone (with the app installed), tapping the link opens the app on *Join the list*. If it doesn't open the app, note what happens
 - [ ] They enter their name and **Join**: they see your items, with your initial on each
 - [ ] They add an item: it appears on your phone within about 15 seconds, with their initial
 - [ ] Both of you tick different items at the same time: both end up ticked on both phones
