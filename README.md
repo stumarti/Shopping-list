@@ -18,15 +18,136 @@ Once it's running, work through [docs/TESTING.md](docs/TESTING.md) on your phone
 
 ## 1. Run the server (home server, Docker)
 
+You need a machine that stays on at home (a PC, Mac mini, NAS or Raspberry Pi 4/5) with Docker and Docker Compose v2.
+On Windows or a Mac, install [Docker Desktop](https://www.docker.com/products/docker-desktop/). On Linux, install Docker Engine and the `docker-compose-plugin` package.
+
+### Quick start
+
 ```sh
-cp .env.example .env      # then fill in APP_TOKEN and ANTHROPIC_API_KEY
+git clone https://github.com/stumarti/Shopping-list.git shopping-list
+cd shopping-list
+cp .env.example .env              # then fill in APP_TOKEN and ANTHROPIC_API_KEY (see below)
 docker compose up -d --build
-curl http://localhost:8787/api/health     # {"ok":true,"claude":true}
+curl http://localhost:8787/api/health
+# {"ok":true,"version":"0.3.0","ai":{"backend":"claude",...},"priceCheck":false,...}
 ```
 
 - `APP_TOKEN`: a long random **setup** secret, used once by the first person to connect. Everyone else joins with an invite link from the app, so nobody else needs it. Generate one with `openssl rand -hex 24`.
 - `ANTHROPIC_API_KEY`: from [console.anthropic.com](https://console.anthropic.com). This is the pay-as-you-go API, separate from a Claude.ai subscription. A photo costs about a cent. Without a key, everything works except photo identification, and typed lists are split with simple rules instead.
 - Data lives in the `shopping-data` Docker volume (`/data/shopping.db`).
+
+### The Compose file
+
+This is `docker-compose.yml` from the repo. You don't need to change it; everything you set goes in `.env`.
+
+```yaml
+services:
+  server:
+    build: ./server
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file: .env
+    # Lets the server reach Ollama running on the same machine (host.docker.internal) on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - shopping-data:/data
+      # Drop old receipts (photos or PDFs) in here to import them; see README.
+      - ./receipts-inbox:/receipts-inbox
+
+  # Optional: read-only Tesco/Dunnes price checks. Start with: docker compose --profile prices up -d
+  worker:
+    build: ./worker
+    profiles: ["prices"]
+    restart: unless-stopped
+    env_file: .env
+    # Not published: only the server talks to it, over the private Compose network.
+    expose:
+      - "8788"
+    shm_size: "1gb"
+    volumes:
+      - worker-data:/data
+
+volumes:
+  shopping-data:
+  worker-data:
+```
+
+| Part | What it does |
+|---|---|
+| `server` | The API the phones talk to, on port **8787**. Holds the lists, people, history and receipts in SQLite. |
+| `worker` | A headless Chromium that reads Tesco/Dunnes prices and fills baskets. Only starts with `--profile prices`. It has no published port, so only the server can reach it (at `http://worker:8788`). `shm_size` stops Chromium crashing on big pages. |
+| `shopping-data` | The database (`/data/shopping.db`). **This is the one to back up.** |
+| `worker-data` | The worker's browser profiles, i.e. your signed-in store sessions. Store passwords are never saved. |
+| `./receipts-inbox` | A folder next to the Compose file. Copy old receipts into it and they're imported (see *Receipts* below). |
+| `extra_hosts` | Makes `host.docker.internal` point at the home server itself, so the server can use Ollama running outside Docker. |
+
+To use a different port on the host, change the left side only, e.g. `"8080:8787"`.
+
+### Your `.env`
+
+Only the first two are required. The rest are explained in the optional sections below.
+
+```sh
+APP_TOKEN=<openssl rand -hex 24>
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Local AI instead of (or before) Claude
+# OLLAMA_URL=http://host.docker.internal:11434
+# OLLAMA_MODEL=...
+# AI_BACKEND=ollama-then-claude          # claude | ollama | ollama-then-claude | none
+
+# Price checks and online baskets (needs --profile prices)
+# WORKER_URL=http://worker:8788
+# WORKER_TOKEN=<openssl rand -hex 24>    # shared by server and worker
+
+# Bulk receipt import
+RECEIPTS_INBOX=/receipts-inbox
+```
+
+After changing `.env`, run `docker compose up -d` again so the containers pick it up.
+
+### Everyday commands
+
+```sh
+docker compose up -d --build                    # start (or rebuild after an update)
+docker compose --profile prices up -d --build   # start with the price/basket worker too
+docker compose ps                               # what's running
+docker compose logs -f server                   # follow the server log (Ctrl+C to stop)
+docker compose logs -f worker
+docker compose restart server
+docker compose --profile prices down            # stop everything (your data stays in the volumes)
+```
+
+To update to the latest version:
+
+```sh
+git pull
+docker compose --profile prices up -d --build   # leave out --profile prices if you don't use it
+```
+
+Database changes are applied automatically when the server starts.
+
+### Backups
+
+Everything you'd miss is in the `shopping-data` volume. Compose prefixes volume names with the folder name, so check yours with `docker volume ls` (it's usually `shopping-list_shopping-data`).
+
+```sh
+# Back up (writes shopping-backup.tgz to the current folder)
+docker compose stop server
+docker run --rm -v shopping-list_shopping-data:/data -v "$PWD":/backup alpine \
+  tar czf /backup/shopping-backup.tgz -C /data .
+docker compose start server
+
+# Restore
+docker compose stop server
+docker run --rm -v shopping-list_shopping-data:/data -v "$PWD":/backup alpine \
+  sh -c "rm -rf /data/* && tar xzf /backup/shopping-backup.tgz -C /data"
+docker compose start server
+```
+
+On Windows PowerShell, use `${PWD}` in place of `"$PWD"`. Stopping the server for a few seconds makes sure the copy is consistent.
 
 ### Reaching it from your phones
 
