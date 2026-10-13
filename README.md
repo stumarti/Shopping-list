@@ -1,6 +1,6 @@
-# Shopping list
+# Press
 
-A shared grocery list for two iPhones (and an iPad), synced through a small server on your home network.
+A shared grocery list for two iPhones (and an iPad), synced through a small server on your home network. (*The press* is what we call the kitchen cupboard in Ireland.)
 
 - **Add items** by scanning a barcode, taking a photo (Claude identifies the type, brand and size), or typing ("2 L milk, bread, 6 eggs").
 - **Grouped by aisle** in a typical supermarket order, which you can rearrange to match your shop.
@@ -216,7 +216,7 @@ You don't need a Mac or Expo Go. Expo builds a real copy of the app in its cloud
 - a free [Expo account](https://expo.dev/signup)
 - the [Apple Developer Program](https://developer.apple.com/programs/) ($99/yr). Apple only lets you install your own apps on an iPhone with this.
 
-First, in `apps/mobile/app.json`, change `ios.bundleIdentifier` from `com.example.shoppinglist` to something you own, e.g. `ie.yourname.shoppinglist`. Then:
+The app ID is `ie.stumarti.press` (`ios.bundleIdentifier` in `apps/mobile/app.json`). It's permanent once you've built with it, so change it now if you want a different one. Then:
 
 ```sh
 cd apps/mobile

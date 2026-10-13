@@ -1,4 +1,4 @@
-# Shopping list
+# Press (shopping list)
 
 A shared grocery list: an Expo iPhone app (`apps/mobile`), a self-hosted Node + SQLite server (`server`) and a Playwright worker (`worker`) that reads and fills Tesco/Dunnes online baskets. The README has the user-facing setup.
 
