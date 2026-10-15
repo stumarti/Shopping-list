@@ -67,3 +67,29 @@ jobs:
         run: |
           cp .env.example .env
           docker compose --profile prices build
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: API tests
+        working-directory: web/backend
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
+      - name: Build the React app
+        working-directory: web/frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Build the container
+        working-directory: web
+        run: docker compose build
