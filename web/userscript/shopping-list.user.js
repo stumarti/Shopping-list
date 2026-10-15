@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Shopping list → basket
 // @namespace    shopping-list
-// @version      1.0.0
+// @version      1.1.0
 // @description  Fill your Tesco or Dunnes basket from your shopping list. It never checks out, pays or books a slot.
 // @match        https://www.tesco.ie/*
 // @match        https://www.dunnesstoresgrocery.com/*
@@ -30,11 +30,13 @@
       id: "tesco",
       name: "Tesco",
       productPath: /^\/(?:shop|groceries)\/en-IE\/products\/\d+\/?$/,
+      orderPath: /order/i,
     },
     "www.dunnesstoresgrocery.com": {
       id: "dunnes",
       name: "Dunnes",
       productPath: /^\/product\/[a-z0-9-]*?\d{6,}\/?$/,
+      orderPath: /order/i,
     },
   };
 
@@ -233,6 +235,147 @@
     panel.message("Stopped. Nothing else will be added.");
   }
 
+  // ---- Past orders: read the products off an order page and send them home ----
+
+  const clean = (t) => (t || "").replace(/\s+/g, " ").trim();
+  const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+  function productLinkPath(a) {
+    try {
+      const url = new URL(a.getAttribute("href"), location.href);
+      return url.host === location.host && store.productPath.test(url.pathname) ? url.pathname.replace(/\/$/, "") : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** The element holding one order line: climb from the link until the next step up holds another product. */
+  function lineContainer(a) {
+    let el = a;
+    for (let i = 0; i < 8 && el.parentElement && el.parentElement !== document.body; i++) {
+      const paths = new Set([...el.parentElement.querySelectorAll("a[href]")].map(productLinkPath).filter(Boolean));
+      if (paths.size > 1) break;
+      el = el.parentElement;
+    }
+    return el;
+  }
+
+  function quantityIn(box, name) {
+    const field = box.querySelector("input[type=number], select");
+    if (field && /^\d{1,2}$/.test(field.value)) return Number(field.value);
+    // Leave the product name out, so "6 x 330ml" isn't read as six of them.
+    const text = clean(box.textContent).replace(name, " ");
+    const m =
+      text.match(/(?:qty|quantity)\s*:?\s*(\d{1,2})\b/i) || text.match(/\b(\d{1,2})\s*[x×](?:\s|$)/) || text.match(/[x×]\s*(\d{1,2})\b/);
+    return m ? Math.max(1, Math.min(99, Number(m[1]))) : 1;
+  }
+
+  function readOrder() {
+    const lines = new Map();
+    for (const a of document.querySelectorAll("a[href]")) {
+      const path = productLinkPath(a);
+      if (!path) continue;
+      const box = lineContainer(a);
+      const name =
+        clean(a.textContent) ||
+        clean(a.querySelector("img") && a.querySelector("img").alt) ||
+        clean((box.querySelector("h2, h3, h4, [class*=title i], [class*=name i]") || {}).textContent);
+      const line = lines.get(path);
+      if (line) {
+        if (!line.name && name) line.name = name; // the picture and the title often link to the same product
+        continue;
+      }
+      lines.set(path, { name, box, url: location.origin + path });
+    }
+    return [...lines.values()].filter((l) => l.name).map((l) => ({ name: l.name, qty: quantityIn(l.box, l.name), url: l.url }));
+  }
+
+  function orderDate() {
+    const text = clean(mainArea().textContent);
+    let m = text.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*,?\s+(\d{4})\b/i);
+    if (m) return iso(m[3], MONTHS.indexOf(m[2].toLowerCase()) + 1, m[1]);
+    m = text.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/i);
+    if (m) return iso(m[3], MONTHS.indexOf(m[1].toLowerCase()) + 1, m[2]);
+    m = text.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/); // Irish order: day/month/year
+    if (m) return iso(m[3], m[2], m[1]);
+    m = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+    return m ? iso(m[1], m[2], m[3]) : "";
+  }
+  const iso = (y, mo, d) => `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+
+  function orderRef() {
+    const params = new URL(location.href).searchParams;
+    for (const k of ["orderId", "orderNumber", "order", "id"]) if (params.get(k)) return params.get(k);
+    const parts = location.pathname.split("/").filter(Boolean);
+    const last = parts.reverse().find((p) => /\d/.test(p) && p.length >= 4);
+    return last || location.pathname;
+  }
+
+  const onOrderPage = () => store.orderPath.test(location.pathname) && readOrder().length > 0;
+
+  async function importOrder() {
+    const items = readOrder();
+    const date = orderDate();
+    const r = await api("POST", `/history/${store.id}/import`, { order_ref: orderRef(), date, items });
+    if (r.already_imported) return "This order was already imported.";
+    return (
+      `Imported ${r.products} products from ${r.bought_on}.` +
+      (r.new_common_items ? ` ${r.new_common_items} new common items, each with its ${store.name} product saved.` : "") +
+      (r.skipped ? ` Skipped ${r.skipped} links that weren't products.` : "")
+    );
+  }
+
+  // ---- A copy of this page, cleaned of personal details, for fixing the helper when a store changes ----
+
+  const REDACT = [
+    [/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "[email]"],
+    [/\b[AC-FHKNPRTV-Y]\d{2}\s?[AC-FHKNPRTV-Y0-9]{4}\b/g, "[eircode]"], // upper case only, so class names survive
+    [/(?:\+353[\s-]?|\b0)\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4}\b/g, "[phone]"],
+    [/\b(?:\d[ -]?){12,19}\b/g, "[number]"],
+  ];
+
+  function snapshot(extraWords) {
+    const words = extraWords.map((w) => w.trim()).filter((w) => w.length > 1).map((w) => new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"));
+    let hidden = 0;
+    const redact = (text) => {
+      let out = text;
+      for (const [pattern, mark] of REDACT) out = out.replace(pattern, () => (hidden++, mark));
+      for (const w of words) out = out.replace(w, () => (hidden++, "[hidden]"));
+      return out;
+    };
+    const doc = document.documentElement.cloneNode(true);
+    doc.querySelectorAll("script, noscript, iframe, object, embed, template, link[rel=preload], link[rel=prefetch], #shopping-list-panel").forEach((e) => e.remove());
+    doc.querySelectorAll("svg").forEach((e) => e.replaceChildren());
+    doc.querySelectorAll("input, textarea, select").forEach((e) => {
+      e.removeAttribute("value");
+      if (e.tagName !== "INPUT") e.textContent = "";
+    });
+    const walker = document.createTreeWalker(doc, NodeFilter.SHOW_ALL);
+    const comments = [];
+    for (let n = walker.currentNode; n; n = walker.nextNode()) {
+      if (n.nodeType === Node.COMMENT_NODE) comments.push(n);
+      else if (n.nodeType === Node.TEXT_NODE) n.nodeValue = redact(n.nodeValue);
+      else if (n.nodeType === Node.ELEMENT_NODE) {
+        for (const attr of [...n.attributes]) {
+          if (/^on/i.test(attr.name)) n.removeAttribute(attr.name);
+          else n.setAttribute(attr.name, redact(attr.value));
+        }
+      }
+    }
+    comments.forEach((c) => c.remove());
+    const note = `<!-- Saved by the shopping list helper from ${location.origin}${location.pathname} on ${new Date().toISOString()}.
+     Scripts, form values, emails, phone numbers, Eircodes, long numbers and your words were removed (${hidden} places).
+     Look it over before sharing. -->`;
+    const html = "<!doctype html>\n" + note + "\n" + doc.outerHTML;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    a.download = `${store.id}${location.pathname.replace(/[^a-z0-9]+/gi, "-").replace(/-$/, "")}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return hidden;
+  }
+
   async function linkThisProduct(itemId) {
     const title = (document.querySelector("h1") || {}).textContent || document.title;
     await api("POST", `/basket/${store.id}/link`, { item_id: itemId, url: location.href, title: title.trim() });
@@ -267,6 +410,8 @@
         a { color: #1a7f4b; }
         .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
         .min .body { display: none; }
+        .foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid #eef0ec; }
+        button.small { font-size: 12px; padding: 4px 8px; color: #5f6b64; }
       </style>
       <div class="box">
         <div class="head"><span>Shopping list</span><button class="icon" data-act="toggle" aria-label="Minimise">–</button></div>
@@ -278,7 +423,12 @@
             <p class="muted">Save this product for:</p>
             <div class="row"><select aria-label="Item on your list"></select><button data-act="link">Save</button></div>
           </div>
+          <div class="order" hidden>
+            <p class="muted">This looks like a past order.</p>
+            <div class="row"><button data-act="import">Import this order</button></div>
+          </div>
           <div class="results"></div>
+          <div class="row foot"><button class="small" data-act="snapshot">Save page for Claude</button></div>
         </div>
       </div>`;
     const $ = (sel) => root.querySelector(sel);
@@ -291,6 +441,20 @@
       if (what === "toggle") $(".box").classList.toggle("min");
       if (what === "start") start();
       if (what === "stop") stop();
+      if (what === "import") {
+        panelApi.busy("Importing this order…");
+        try {
+          panelApi.message(await importOrder());
+        } catch (err) {
+          panelApi.message(err.message);
+        }
+      }
+      if (what === "snapshot") {
+        const words = prompt("Words to blank out as well, like your name or street (optional, separate with commas):", "");
+        if (words === null) return;
+        const hidden = snapshot(words.split(","));
+        panelApi.message(`Saved a copy of this page (${hidden} personal details blanked). Look it over, then share it.`);
+      }
       if (what === "link") {
         const id = Number($(".link select").value);
         if (!id) return;
@@ -331,6 +495,9 @@
         }
         $(".results").innerHTML = html;
       },
+      order(show) {
+        $(".order").hidden = !show;
+      },
       linkChoices(items) {
         const box = $(".link");
         box.hidden = !items.length;
@@ -355,19 +522,26 @@
     }
   }
 
+  function refreshPageTools() {
+    panel.order(!loadState() && onOrderPage());
+    refreshLinkChoices();
+  }
+
   panel.mount();
   if (loadState()) {
     step();
   } else {
     panel.message("Ready. Book your slot first, then fill your basket.");
-    refreshLinkChoices();
+    refreshPageTools();
+    // Order pages often load their contents after the page itself.
+    setTimeout(refreshPageTools, 2500);
   }
   // The stores change pages without reloading, so notice when you've moved to another product.
   let lastPath = location.pathname;
   setInterval(() => {
     if (location.pathname !== lastPath) {
       lastPath = location.pathname;
-      refreshLinkChoices();
+      refreshPageTools();
     }
   }, 1000);
 })();

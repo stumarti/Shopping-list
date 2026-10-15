@@ -98,6 +98,24 @@ function productPage(id) {
   );
 }
 
+// A past order, laid out the way order pages usually are: picture and title both link to the product.
+const orderPage = () =>
+  shell(
+    "Order details",
+    `<h1>Your order</h1>
+     <p>Delivered Saturday 12th September 2026</p>
+     <section class="account">Jane Doe · jane.doe@example.com · 087 123 4567 · 4 Main Street, Dublin D02 X285</section>
+     <ul class="lines">
+       <li><a href="/shop/en-IE/products/711"><img alt="Avonmore Fresh Milk 2 Litre" src="/m.png"></a>
+           <a href="/shop/en-IE/products/711">Avonmore Fresh Milk 2 Litre</a><span>Quantity: 2</span><span>€4.38</span></li>
+       <li><a href="/shop/en-IE/products/755?from=order">Coca-Cola 6 x 330ml</a><span>Qty 1</span></li>
+       <li><div class="tile"><a href="/shop/en-IE/products/766"><img alt="Birds Eye Frozen Garden Peas 800g" src="/p.png"></a></div>
+           <span>3 x</span></li>
+     </ul>
+     <a href="/shop/en-IE/search?query=milk">Shop again</a>
+     <script>window.secret = "jane.doe@example.com";</script>`,
+  );
+
 async function openStore() {
   const basket = new Map(); // product id → quantity in the trolley
   const visited = [];
@@ -111,6 +129,7 @@ async function openStore() {
       basket.set(id, qty);
       return route.fulfill({ status: 204 });
     }
+    if (url.pathname === "/shop/en-IE/orders/ABC-123456") return route.fulfill({ contentType: "text/html", body: orderPage() });
     const product = url.pathname.match(/^\/shop\/en-IE\/products\/(\d+)$/);
     const html = product ? productPage(product[1]) : shell("Tesco", `<h1>${url.pathname}</h1>`);
     return route.fulfill({ contentType: "text/html", body: html });
@@ -177,6 +196,54 @@ test("fills the basket with saved products, skips what it can't, and never goes 
   const done = Object.fromEntries(list.map((i) => [i.name, i.done]));
   assert.deepEqual(done, { Milk: true, "Sliced pan": false, Eggs: true, Butter: false });
 
+  await context.close();
+});
+
+test("imports a past order: common items with their products saved, and the purchase history", { timeout: 60_000 }, async () => {
+  const { page, context } = await openStore();
+  await page.goto("https://www.tesco.ie/shop/en-IE/orders/ABC-123456");
+  await page.getByRole("button", { name: "Import this order" }).click();
+  await page.getByText(/^Imported 3 products from 2026-09-12\./).waitFor();
+
+  const catalog = Object.fromEntries((await call("GET", "/catalog")).map((c) => [c.name, c]));
+  assert.equal(catalog["Avonmore Fresh Milk 2 Litre"].category, "Dairy & eggs");
+  assert.equal(catalog["Avonmore Fresh Milk 2 Litre"].products.tesco.url, "https://www.tesco.ie/shop/en-IE/products/711");
+  assert.equal(catalog["Birds Eye Frozen Garden Peas 800g"].category, "Frozen");
+  assert.equal(catalog["Coca-Cola 6 x 330ml"].products.tesco.url, "https://www.tesco.ie/shop/en-IE/products/755");
+
+  const history = await call("GET", "/history");
+  const order = history.orders.find((o) => o.order_ref === "ABC-123456");
+  assert.deepEqual(order, { store: "tesco", order_ref: "ABC-123456", bought_on: "2026-09-12", products: 3, units: 6 });
+
+  // Importing it again doesn't double up.
+  await page.reload();
+  await page.getByRole("button", { name: "Import this order" }).click();
+  await page.getByText("This order was already imported.").waitFor();
+  await context.close();
+});
+
+test("saves a cleaned copy of a page for fixing the helper", { timeout: 60_000 }, async () => {
+  const { page, context } = await openStore();
+  await page.goto("https://www.tesco.ie/shop/en-IE/orders/ABC-123456");
+  page.once("dialog", (d) => d.accept("Jane, Main Street"));
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Save page for Claude" }).click()]);
+  assert.equal(download.suggestedFilename(), "tesco-shop-en-IE-orders-ABC-123456.html");
+  const html = readFileSync(await download.path(), "utf8");
+
+  for (const secret of ["jane.doe@example.com", "087 123 4567", "D02 X285", "Jane", "Main Street", "window.secret"]) {
+    assert.ok(!html.includes(secret), "still contains " + secret);
+  }
+  assert.match(html, /\[email\]/);
+  assert.match(html, /\[eircode\]/);
+  assert.match(html, /\[phone\]/);
+  assert.match(html, /\[hidden\] Doe/);
+  assert.ok(!html.includes("<script"), "scripts removed");
+  assert.ok(!html.includes("shopping-list-panel"), "the helper's own panel is left out");
+  // What's needed to fix the helper survives.
+  assert.ok(html.includes('href="/shop/en-IE/products/711"'));
+  assert.ok(html.includes("Avonmore Fresh Milk 2 Litre"));
+  assert.ok(html.includes("Quantity: 2"));
+  await page.getByText(/Saved a copy of this page \(\d+ personal details blanked\)/).waitFor();
   await context.close();
 });
 

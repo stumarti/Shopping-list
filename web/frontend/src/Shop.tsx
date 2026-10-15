@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { api, fillLink, type Links, type ListItem } from "./api";
+import { useEffect, useState, type FormEvent } from "react";
+import { api, fillLink, type History, type Links, type ListItem } from "./api";
 
 type Props = {
   list: ListItem[];
@@ -17,6 +17,12 @@ export default function Shop({ list, links, groupBy, run }: Props) {
   const store = stores.find((s) => s.id === storeId) ?? stores[0];
   const toBuy = list.filter((i) => !i.done);
   const linked = toBuy.filter((i) => store && i.products[store.id]).length;
+  const [history, setHistory] = useState<History | null>(null);
+  const onList = new Set(toBuy.map((i) => i.name.toLowerCase()));
+
+  useEffect(() => {
+    api.history().then(setHistory, () => setHistory(null));
+  }, [list.length]);
 
   if (!store) return <section><p className="muted">Loading…</p></section>;
 
@@ -83,9 +89,50 @@ export default function Shop({ list, links, groupBy, run }: Props) {
           You can also save products while browsing {store.name}: open a product, and use <em>Save this product for</em> in the helper's panel.
         </p>
       </section>
+
+      <section aria-labelledby="orders-heading">
+        <h2 id="orders-heading">Past orders</h2>
+        {!history?.orders.length ? (
+          <p className="muted">
+            Import your past orders to save every product you've bought in one go. On {store.name}, open your order history, open an order,
+            and press <em>Import this order</em> in the helper's panel. Repeat for each order.
+          </p>
+        ) : (
+          <>
+            <p className="muted">
+              {history.orders.length} {history.orders.length === 1 ? "order" : "orders"} imported, most recently{" "}
+              {formatDate(history.orders[0].bought_on)}. Import more from each order's page with the helper.
+            </p>
+            <h3>You often buy</h3>
+            <ul className="usual">
+              {history.usual.slice(0, 20).map((u) => {
+                const qty = Math.max(1, Math.round(u.usual_qty));
+                const already = onList.has(u.name.toLowerCase());
+                return (
+                  <li key={u.catalog_id}>
+                    <span>
+                      {u.name}
+                      <span className="muted">
+                        {" "}
+                        · {u.orders}× · last {formatDate(u.last_bought)}
+                      </span>
+                    </span>
+                    <button className="link" disabled={already} onClick={() => run(() => api.add(u.name, u.category, qty))}>
+                      {already ? "On the list" : `Add${qty > 1 ? ` ${qty}` : ""}`}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </section>
     </>
   );
 }
+
+const formatDate = (iso: string) =>
+  new Date(iso + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
 
 function ProductRow({ item, store, run }: { item: ListItem; store: { id: string; name: string; search: string }; run: Props["run"] }) {
   const saved = item.products[store.id];

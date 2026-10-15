@@ -535,3 +535,26 @@ a {
 .paste .primary {
   padding: 6px 14px;
 }
+
+.usual {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.usual li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+
+.usual li:first-child {
+  border-top: none;
+}
+
+.usual .link {
+  white-space: nowrap;
+}

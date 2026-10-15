@@ -16,6 +16,10 @@ export type Links = {
   stores: { id: string; name: string; search: string }[];
   barcodes: { name: string; product: string; search: string };
 };
+export type History = {
+  orders: { store: string; order_ref: string; bought_on: string; products: number; units: number }[];
+  usual: { catalog_id: number; name: string; category: string; orders: number; last_bought: string; usual_qty: number }[];
+};
 export type Product = { barcode: string; name: string; brand: string; quantity: string; category: string; source: string };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -38,6 +42,7 @@ export const api = {
   catalog: () => call<CatalogItem[]>("/catalog"),
   list: () => call<ListItem[]>("/list"),
   links: () => call<Links>("/links"),
+  history: () => call<History>("/history"),
   barcode: (code: string) => call<Product>(`/barcode/${encodeURIComponent(code)}`),
   add: (name: string, category: string, qty = 1, barcode = "") =>
     call<ListItem>("/list", json("POST", { name, category, qty, barcode })),

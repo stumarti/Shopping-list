@@ -43,6 +43,22 @@ MIGRATIONS = [
         PRIMARY KEY (catalog_id, store)
     )
     """,
+    # 3: what was bought in past online orders, imported from the stores' order pages
+    """
+    CREATE TABLE purchases (
+        id INTEGER PRIMARY KEY,
+        store TEXT NOT NULL,
+        order_ref TEXT NOT NULL,
+        bought_on TEXT NOT NULL,
+        catalog_id INTEGER REFERENCES catalog (id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        qty INTEGER NOT NULL DEFAULT 1,
+        url TEXT NOT NULL,
+        imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (store, order_ref, url)
+    );
+    CREATE INDEX purchases_catalog ON purchases (catalog_id)
+    """,
 ]
 
 

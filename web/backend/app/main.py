@@ -1,3 +1,4 @@
+import datetime
 import os
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from .catalog import CATEGORIES
+from .catalog import CATEGORIES, guess_aisle
 from .db import Database, category_order
 from .lookup import STORES, Fetch, fill_link, http_fetch, is_barcode, link_templates, lookup_barcode, product_url
 
@@ -70,7 +71,20 @@ class LinkFromStore(StoreProduct):
     item_id: int
 
 
+class OrderLine(BaseModel):
+    name: str = Field(min_length=1, max_length=300)
+    qty: int = Field(default=1, ge=1, le=99)
+    url: str = Field(min_length=1, max_length=500)
+
+
+class PastOrder(BaseModel):
+    order_ref: str = Field(min_length=1, max_length=120)
+    date: str = ""
+    items: list[OrderLine] = Field(min_length=1, max_length=400)
+
+
 class NewListItem(NewCatalogItem):
+    category: str | None = None  # left out: the common item's aisle, or Other
     qty: int = Field(default=1, ge=1, le=99)
 
 
@@ -290,6 +304,72 @@ def create_app(db_path: str | None = None, static_dir: str | None = None, fetch:
             ).lastrowid
         return save_product(catalog_id, store, body)
 
+    # Past online orders (imported by the userscript from the stores' order pages)
+
+    @app.post("/api/history/{store}/import")
+    def import_order(store: str, body: PastOrder):
+        """Record a past order, and make sure each product is a common item with this store's product saved."""
+        known_store(store)
+        try:
+            bought_on = datetime.date.fromisoformat(body.date).isoformat()
+        except ValueError:
+            bought_on = datetime.date.today().isoformat()
+        added = new_items = skipped = 0
+        with db.tx() as conn:
+            for line in body.items:
+                try:
+                    url = product_url(store, line.url)
+                except ValueError:
+                    skipped += 1
+                    continue
+                title = " ".join(line.name.split())
+                name = tidy_name(title[:80])
+                saved = conn.execute(
+                    "SELECT catalog_id FROM store_products WHERE store = ? AND url = ?", (store, url)
+                ).fetchone()
+                catalog_id = saved["catalog_id"] if saved else None
+                if catalog_id is None:
+                    named = conn.execute("SELECT id FROM catalog WHERE lower(name) = lower(?)", (name,)).fetchone()
+                    if named:
+                        catalog_id = named["id"]
+                    else:
+                        catalog_id = conn.execute(
+                            "INSERT INTO catalog (name, category, custom) VALUES (?, ?, 1)", (name, guess_aisle(title))
+                        ).lastrowid
+                        new_items += 1
+                    conn.execute(
+                        "INSERT OR IGNORE INTO store_products (catalog_id, store, url, title) VALUES (?, ?, ?, ?)",
+                        (catalog_id, store, url, title[:200]),
+                    )
+                added += conn.execute(
+                    "INSERT OR IGNORE INTO purchases (store, order_ref, bought_on, catalog_id, name, qty, url) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (store, body.order_ref, bought_on, catalog_id, title[:300], line.qty, url),
+                ).rowcount
+        return {
+            "order_ref": body.order_ref,
+            "bought_on": bought_on,
+            "products": added,
+            "new_common_items": new_items,
+            "skipped": skipped,
+            "already_imported": added == 0 and skipped < len(body.items),
+        }
+
+    @app.get("/api/history")
+    def history():
+        """Imported orders, newest first, and the items bought most often."""
+        orders = db.rows(
+            "SELECT store, order_ref, bought_on, count(*) AS products, sum(qty) AS units FROM purchases "
+            "GROUP BY store, order_ref ORDER BY bought_on DESC, order_ref"
+        )
+        usual = db.rows(
+            "SELECT c.id AS catalog_id, c.name, c.category, count(DISTINCT p.store || p.order_ref) AS orders, "
+            "max(p.bought_on) AS last_bought, round(avg(p.qty), 1) AS usual_qty "
+            "FROM purchases p JOIN catalog c ON c.id = p.catalog_id "
+            "GROUP BY c.id ORDER BY orders DESC, last_bought DESC, c.name LIMIT 40"
+        )
+        return {"orders": orders, "usual": usual}
+
     @app.get("/userscript/" + USERSCRIPT_NAME, include_in_schema=False)
     def userscript(request: Request):
         """The Tampermonkey script, pointed back at this server."""
@@ -304,11 +384,11 @@ def create_app(db_path: str | None = None, static_dir: str | None = None, fetch:
     @app.post("/api/list", status_code=201)
     def add_to_list(body: NewListItem):
         """Add an item, or bump the quantity if it's already on the list and not yet ticked."""
-        category = aisle(body.category)
         with db.tx() as conn:
             known = conn.execute(
-                "SELECT id, barcode FROM catalog WHERE lower(name) = lower(?)", (body.name,)
+                "SELECT id, barcode, category FROM catalog WHERE lower(name) = lower(?)", (body.name,)
             ).fetchone()
+            category = aisle(body.category or (known["category"] if known else None))
             barcode = body.barcode or (known["barcode"] if known else "")
             existing = conn.execute(
                 "SELECT id FROM list_items WHERE lower(name) = lower(?) AND done = 0", (body.name,)

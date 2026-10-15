@@ -94,7 +94,21 @@ volumes:
 4. **Fill the basket.** On the store's site, press **Fill basket from my list** in the helper's panel (bottom right). It opens each saved product in turn, sets the quantity, presses **Add**, and ticks the item off your list. It waits a few seconds between products, like a person would.
 5. **Check and pay yourself.** At the end it lists anything it couldn't add (out of stock, no saved product, or a page it didn't understand) with links to find a replacement. It never presses checkout, payment or slot buttons.
 
+### Import your past orders
+
+This saves every product you've bought, with its store product already linked, so filling the basket works for those items straight away.
+
+1. On tesco.ie or dunnesstoresgrocery.com, open your order history and open an order.
+2. Press **Import this order** in the helper's panel. It reads each product, its quantity and the order date, adds any new products to your common items (with a guessed aisle you can change) and records the order.
+3. Go back and repeat for each order. Importing the same order twice does nothing.
+
+**Shop online → Past orders** then shows how many orders you've imported and the items you buy most often, each with an **Add** button for your usual quantity.
+
+### When a store changes its site
+
 The helper updates itself from your server. When a store changes its site and the helper stops finding the **Add** button, the part to fix is the `STORES` section and the button patterns at the top of [`userscript/shopping-list.user.js`](userscript/shopping-list.user.js); bump its `@version` so Tampermonkey picks up the change.
+
+To help fix it without sharing your account, press **Save page for Claude** in the helper's panel on the page that's not working. It downloads a copy of the page with scripts, form values, emails, phone numbers, Eircodes and any words you give it (your name, street) removed. Check it, then put it in [`userscript/fixtures/`](userscript/fixtures/README.md) or attach it to a Claude conversation.
 
 Automated use may not be allowed by a store's terms. The helper only runs when you press the button, in your own browser and signed-in session, at a person's pace.
 
@@ -148,6 +162,8 @@ web/
 | POST | `/api/list/clear-done` | Remove ticked items |
 | GET | `/api/basket/{store}` | What's still to buy, with the saved product or a search link for each |
 | POST | `/api/basket/{store}/link` | Save a product for a list item `{item_id, url, title}` |
+| POST | `/api/history/{store}/import` | Record a past order `{order_ref, date, items: [{name, qty, url}]}`; saves each product |
+| GET | `/api/history` | Imported orders, newest first, and the items bought most often |
 | GET | `/api/barcode/{code}` | Look a barcode up (your items first, then Open Food Facts) |
 | GET | `/api/links` | The Tesco, Dunnes and barcode directory link addresses |
 | GET | `/userscript/shopping-list.user.js` | The browser helper, pointed back at this server |

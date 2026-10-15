@@ -273,3 +273,69 @@ def test_userscript_is_served_for_this_server(client, monkeypatch):
 
 def test_health_reports_version(client, monkeypatch):
     assert client.get("/api/health").json() == {"ok": True, "version": "dev"}
+
+
+# Importing past orders
+
+
+TESCO = "https://www.tesco.ie/shop/en-IE/products/"
+
+
+def test_import_order_builds_common_items_with_products(client):
+    order = {
+        "order_ref": "order-123",
+        "date": "2026-09-12",
+        "items": [
+            {"name": "Avonmore Fresh Milk 2 Litre", "qty": 2, "url": TESCO + "111"},
+            {"name": "Birds Eye Frozen Garden Peas 800g", "qty": 1, "url": TESCO + "222?from=order"},
+            {"name": "Milk", "qty": 1, "url": TESCO + "333"},  # matches the starter "Milk" by name
+            {"name": "Not a product", "qty": 1, "url": "https://www.tesco.ie/shop/en-IE/search?query=x"},
+        ],
+    }
+    r = client.post("/api/history/tesco/import", json=order).json()
+    assert r == {"order_ref": "order-123", "bought_on": "2026-09-12", "products": 3, "new_common_items": 2,
+                 "skipped": 1, "already_imported": False}
+    catalog = {i["name"]: i for i in client.get("/api/catalog").json()}
+    assert catalog["Avonmore Fresh Milk 2 Litre"]["category"] == "Dairy & eggs"
+    assert catalog["Avonmore Fresh Milk 2 Litre"]["products"]["tesco"]["url"] == TESCO + "111"
+    assert catalog["Birds Eye Frozen Garden Peas 800g"]["category"] == "Frozen"
+    assert catalog["Milk"]["products"]["tesco"] == {"url": TESCO + "333", "title": "Milk"}
+
+    # The same order again changes nothing
+    again = client.post("/api/history/tesco/import", json=order).json()
+    assert again["products"] == 0 and again["already_imported"] is True
+    assert len(client.get("/api/catalog").json()) == len(catalog)
+
+
+def test_history_and_usual_items(client):
+    for ref, date, items in [
+        ("a", "2026-08-01", [("Avonmore Milk", 2, "111"), ("Sliced pan", 1, "222")]),
+        ("b", "2026-08-08", [("Avonmore Milk", 2, "111")]),
+        ("c", "2026-08-15", [("Avonmore Milk", 1, "111"), ("Tayto Crisps", 1, "444")]),
+    ]:
+        client.post("/api/history/tesco/import", json={
+            "order_ref": ref, "date": date,
+            "items": [{"name": n, "qty": q, "url": TESCO + u} for n, q, u in items]})
+    h = client.get("/api/history").json()
+    assert [o["order_ref"] for o in h["orders"]] == ["c", "b", "a"]
+    assert h["orders"][2] == {"store": "tesco", "order_ref": "a", "bought_on": "2026-08-01", "products": 2, "units": 3}
+    top = h["usual"][0]
+    assert (top["name"], top["orders"], top["last_bought"], top["usual_qty"]) == ("Avonmore Milk", 3, "2026-08-15", 1.7)
+    # A product saved before (by link) is recognised even under a different name in a later order
+    client.post("/api/history/tesco/import", json={"order_ref": "d", "date": "2026-08-22",
+                                                   "items": [{"name": "Avonmore Fresh Milk 1L", "url": TESCO + "111"}]})
+    assert client.get("/api/history").json()["usual"][0]["orders"] == 4
+
+
+def test_import_rejects_unknown_store_and_bad_dates_default_to_today(client):
+    assert client.post("/api/history/aldi/import", json={"order_ref": "x", "items": [
+        {"name": "Milk", "url": TESCO + "1"}]}).status_code == 404
+    r = client.post("/api/history/tesco/import", json={"order_ref": "x", "date": "Saturday", "items": [
+        {"name": "Milk", "url": TESCO + "1"}]}).json()
+    import datetime
+    assert r["bought_on"] == datetime.date.today().isoformat()
+
+
+def test_adding_a_known_item_without_an_aisle_uses_its_aisle(client):
+    assert client.post("/api/list", json={"name": "bananas"}).json()["category"] == "Fruit & veg"
+    assert client.post("/api/list", json={"name": "Gadget"}).json()["category"] == "Other"
