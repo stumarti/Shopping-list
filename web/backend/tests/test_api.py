@@ -203,3 +203,73 @@ def test_database_from_before_barcodes_is_upgraded(tmp_path):
     c = TestClient(create_app(db_path=str(path), static_dir=str(tmp_path / "none")))
     assert c.get("/api/list").json()[0]["barcode"] == ""
     assert [i["name"] for i in c.get("/api/catalog").json()] == ["Milk"]
+
+
+# Saved store products and the basket
+
+
+def test_save_store_products(client):
+    milk = next(i for i in client.get("/api/catalog").json() if i["name"] == "Milk")
+    r = client.put(f"/api/catalog/{milk['id']}/products/tesco",
+                   json={"url": "www.tesco.ie/shop/en-IE/products/250000750?ref=x", "title": " Avonmore  Milk "})
+    assert r.status_code == 200
+    assert r.json()["products"]["tesco"] == {"url": "https://www.tesco.ie/shop/en-IE/products/250000750", "title": "Avonmore Milk"}
+    dunnes = "https://www.dunnesstoresgrocery.com/product/dunnes-stores-irish-skimmed-milk-1l-id-100806902"
+    assert client.put(f"/api/catalog/{milk['id']}/products/dunnes", json={"url": dunnes}).status_code == 200
+    # Wrong store, not a product, unknown store
+    bad = client.put(f"/api/catalog/{milk['id']}/products/tesco", json={"url": dunnes})
+    assert bad.status_code == 422 and "isn't a Tesco link" in bad.json()["detail"]
+    assert client.put(f"/api/catalog/{milk['id']}/products/tesco",
+                      json={"url": "https://www.tesco.ie/shop/en-IE/search?query=milk"}).status_code == 422
+    assert client.put(f"/api/catalog/{milk['id']}/products/aldi", json={"url": dunnes}).status_code == 404
+    # The list shows them, and forgetting one leaves the other
+    client.post("/api/list", json={"name": "milk"})
+    assert set(client.get("/api/list").json()[0]["products"]) == {"tesco", "dunnes"}
+    assert set(client.delete(f"/api/catalog/{milk['id']}/products/tesco").json()["products"]) == {"dunnes"}
+    # Deleting the common item takes its products with it
+    client.delete(f"/api/catalog/{milk['id']}")
+    assert client.get("/api/list").json()[0]["products"] == {}
+
+
+def test_basket_and_linking_from_the_store(client):
+    milk = client.post("/api/list", json={"name": "Milk", "qty": 2}).json()
+    bread = client.post("/api/list", json={"name": "Sliced pan"}).json()
+    done = client.post("/api/list", json={"name": "Eggs"}).json()
+    client.patch(f"/api/list/{done['id']}", json={"done": True})
+
+    r = client.post("/api/basket/tesco/link", json={
+        "item_id": milk["id"], "url": "https://www.tesco.ie/shop/en-IE/products/111", "title": "Avonmore Milk 2L"})
+    assert r.status_code == 200
+
+    basket = client.get("/api/basket/tesco").json()
+    assert basket["name"] == "Tesco"
+    items = {i["name"]: i for i in basket["items"]}
+    assert set(items) == {"Milk", "Sliced pan"}  # ticked items aren't bought again
+    assert items["Milk"]["qty"] == 2
+    assert items["Milk"]["product"] == {"url": "https://www.tesco.ie/shop/en-IE/products/111", "title": "Avonmore Milk 2L"}
+    assert items["Sliced pan"]["product"] is None
+    assert items["Sliced pan"]["search"] == "https://www.tesco.ie/shop/en-IE/search?query=Sliced%20pan"
+    assert client.get("/api/basket/dunnes").json()["items"][0]["product"] is None
+    assert client.get("/api/basket/aldi").status_code == 404
+
+    # A list item whose common item was deleted gets a new one when linked
+    catalog_id = next(i["id"] for i in client.get("/api/catalog").json() if i["name"] == "Sliced pan")
+    client.delete(f"/api/catalog/{catalog_id}")
+    r = client.post("/api/basket/dunnes/link", json={
+        "item_id": bread["id"], "url": "https://www.dunnesstoresgrocery.com/product/brennans-family-pan-800g-id-100123456"})
+    assert r.status_code == 200 and r.json()["name"] == "Sliced pan"
+
+
+def test_userscript_is_served_for_this_server(client, monkeypatch):
+    r = client.get("/userscript/shopping-list.user.js", headers={"host": "unraid.lan:8080"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/javascript")
+    assert 'const SERVER = "http://unraid.lan:8080"' in r.text
+    assert "@connect      unraid.lan" in r.text
+    monkeypatch.setenv("PUBLIC_URL", "https://shop.example.ts.net/")
+    r = client.get("/userscript/shopping-list.user.js")
+    assert 'const SERVER = "https://shop.example.ts.net"' in r.text
+    assert "@updateURL    https://shop.example.ts.net/userscript/shopping-list.user.js" in r.text
+
+
+def test_health_reports_version(client, monkeypatch):
+    assert client.get("/api/health").json() == {"ok": True, "version": "dev"}

@@ -1,4 +1,6 @@
-export type CatalogItem = { id: number; name: string; category: string; custom: boolean; barcode: string };
+export type StoreProduct = { url: string; title: string };
+export type Products = Partial<Record<string, StoreProduct>>;
+export type CatalogItem = { id: number; name: string; category: string; custom: boolean; barcode: string; products: Products };
 export type ListItem = {
   id: number;
   name: string;
@@ -7,6 +9,8 @@ export type ListItem = {
   note: string;
   done: boolean;
   barcode: string;
+  catalog_id: number | null;
+  products: Products;
 };
 export type Links = {
   stores: { id: string; name: string; search: string }[];
@@ -44,6 +48,13 @@ export const api = {
   forget: (id: number) => call<void>(`/catalog/${id}`, { method: "DELETE" }),
   editCommon: (id: number, change: Partial<Pick<CatalogItem, "name" | "category" | "barcode">>) =>
     call<CatalogItem>(`/catalog/${id}`, json("PATCH", change)),
+  setProduct: (catalogId: number, store: string, url: string) =>
+    call<CatalogItem>(`/catalog/${catalogId}/products/${store}`, json("PUT", { url })),
+  /** Save a product for an item on the list (creates its common item if it was deleted). */
+  linkItem: (itemId: number, store: string, url: string) =>
+    call<CatalogItem>(`/basket/${store}/link`, json("POST", { item_id: itemId, url })),
+  forgetProduct: (catalogId: number, store: string) =>
+    call<CatalogItem>(`/catalog/${catalogId}/products/${store}`, { method: "DELETE" }),
   addCommon: (text: string, category: string) =>
     call<{ added: string[]; skipped: string[] }>("/catalog/bulk", json("POST", { text, category })),
 };

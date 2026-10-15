@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, isBarcode, itemLinks, type CatalogItem, type Links, type ListItem, type Product } from "./api";
 import Manage from "./Manage";
+import Shop from "./Shop";
 
 const POLL_MS = 10_000;
 
-type Tab = "list" | "common";
-const tabFromHash = (): Tab => (location.hash === "#common" ? "common" : "list");
+type Tab = "list" | "common" | "shop";
+const TABS: [Tab, string][] = [
+  ["list", "My list"],
+  ["shop", "Shop online"],
+  ["common", "Common items"],
+];
+const tabFromHash = (): Tab => TABS.find(([t]) => location.hash === `#${t}` && t !== "list")?.[0] ?? "list";
 
 const rank = (order: string[], c: string) => (order.includes(c) ? order.indexOf(c) : order.length);
 
@@ -135,7 +141,7 @@ export default function App() {
   };
 
   const go = (t: Tab) => {
-    history.replaceState(null, "", t === "common" ? "#common" : location.pathname);
+    history.replaceState(null, "", t === "list" ? location.pathname : `#${t}`);
     setTab(t);
   };
 
@@ -148,16 +154,11 @@ export default function App() {
           {ticked > 0 && ` · ${ticked} in the trolley`}
         </p>
         <nav className="tabs" aria-label="Pages">
-          <button className={tab === "list" ? "on" : ""} aria-current={tab === "list" ? "page" : undefined} onClick={() => go("list")}>
-            My list
-          </button>
-          <button
-            className={tab === "common" ? "on" : ""}
-            aria-current={tab === "common" ? "page" : undefined}
-            onClick={() => go("common")}
-          >
-            Common items
-          </button>
+          {TABS.map(([t, label]) => (
+            <button key={t} className={tab === t ? "on" : ""} aria-current={tab === t ? "page" : undefined} onClick={() => go(t)}>
+              {label}
+            </button>
+          ))}
         </nav>
       </header>
 
@@ -172,6 +173,8 @@ export default function App() {
 
       {tab === "common" ? (
         <Manage catalog={catalog} categories={categories} links={links} groupBy={groupBy} run={run} />
+      ) : tab === "shop" ? (
+        <Shop list={list} links={links} groupBy={groupBy} run={run} />
       ) : (
         <>
           <section aria-labelledby="list-heading">

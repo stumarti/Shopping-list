@@ -288,7 +288,9 @@ select:focus-visible {
   background: none;
   border: none;
   border-radius: 9px;
-  padding: 8px 12px;
+  padding: 8px 4px;
+  white-space: nowrap;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--muted);
 }
@@ -431,4 +433,105 @@ a {
 
 .edit-list .remove {
   grid-area: remove;
+}
+
+/* Shop online */
+.tabs.stores {
+  margin-top: 12px;
+  background: var(--ground);
+}
+
+.steps {
+  margin: 12px 0 0;
+  padding-left: 1.3em;
+}
+
+.steps li {
+  margin: 6px 0;
+}
+
+.install {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.install summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.install ol {
+  padding-left: 1.3em;
+}
+
+.install a.script {
+  word-break: break-all;
+}
+
+.shop-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shop-list li {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.shop-list li:first-child {
+  border-top: none;
+}
+
+.shop-name {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.saved {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.saved a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 14rem;
+  text-decoration: none;
+}
+
+.find {
+  font-size: 0.9rem;
+}
+
+.paste {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.paste input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.9rem;
+  color: inherit;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.paste .primary {
+  padding: 6px 14px;
 }

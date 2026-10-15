@@ -1,15 +1,20 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+import urllib.parse
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from .catalog import CATEGORIES
 from .db import Database, category_order
-from .lookup import Fetch, http_fetch, is_barcode, link_templates, lookup_barcode
+from .lookup import STORES, Fetch, fill_link, http_fetch, is_barcode, link_templates, lookup_barcode, product_url
+
+USERSCRIPT_NAME = "shopping-list.user.js"
+USERSCRIPT_DIRS = [Path(__file__).parent.parent / "userscript", Path(__file__).parent.parent.parent / "userscript"]
 
 
 def tidy_name(v: str) -> str:
@@ -56,6 +61,15 @@ class BulkCatalog(BaseModel):
     category: str = "Other"
 
 
+class StoreProduct(BaseModel):
+    url: str = Field(min_length=1, max_length=500)
+    title: str = Field(default="", max_length=200)
+
+
+class LinkFromStore(StoreProduct):
+    item_id: int
+
+
 class NewListItem(NewCatalogItem):
     qty: int = Field(default=1, ge=1, le=99)
 
@@ -86,16 +100,48 @@ def create_app(db_path: str | None = None, static_dir: str | None = None, fetch:
         row["done"] = bool(row["done"])
         return row
 
+    def products() -> dict[int, dict]:
+        """{catalog id: {store: {url, title}}} for every saved store product."""
+        saved: dict[int, dict] = {}
+        for r in db.rows("SELECT catalog_id, store, url, title FROM store_products"):
+            saved.setdefault(r["catalog_id"], {})[r["store"]] = {"url": r["url"], "title": r["title"]}
+        return saved
+
+    def with_products(items: list[dict], key=lambda i: i["id"]) -> list[dict]:
+        saved = products()
+        for i in items:
+            i["products"] = saved.get(key(i), {})
+        return items
+
     def catalog_item(item_id: int) -> dict:
         rows = db.rows("SELECT id, name, category, custom, barcode FROM catalog WHERE id = ?", (item_id,))
         if not rows:
             raise HTTPException(404, "That common item has gone")
         rows[0]["custom"] = bool(rows[0]["custom"])
-        return rows[0]
+        return with_products(rows)[0]
+
+    def known_store(store: str) -> dict:
+        if store not in STORES:
+            raise HTTPException(404, "Unknown store")
+        return STORES[store]
+
+    def save_product(catalog_id: int, store: str, body: StoreProduct) -> dict:
+        try:
+            url = product_url(store, body.url)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        with db.tx() as conn:
+            conn.execute(
+                "INSERT INTO store_products (catalog_id, store, url, title) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (catalog_id, store) DO UPDATE SET url = excluded.url, title = excluded.title, "
+                "saved_at = datetime('now')",
+                (catalog_id, store, url, " ".join(body.title.split())),
+            )
+        return catalog_item(catalog_id)
 
     @app.get("/api/health")
     def health():
-        return {"ok": True}
+        return {"ok": True, "version": os.environ.get("APP_VERSION", "dev")}
 
     @app.get("/api/categories")
     def categories():
@@ -129,7 +175,7 @@ def create_app(db_path: str | None = None, static_dir: str | None = None, fetch:
         items = db.rows("SELECT id, name, category, custom, barcode FROM catalog")
         for i in items:
             i["custom"] = bool(i["custom"])
-        return sort_items(items)
+        return sort_items(with_products(items))
 
     @app.post("/api/catalog", status_code=201)
     def add_to_catalog(body: NewCatalogItem):
@@ -182,14 +228,78 @@ def create_app(db_path: str | None = None, static_dir: str | None = None, fetch:
         with db.tx() as conn:
             conn.execute("DELETE FROM catalog WHERE id = ?", (item_id,))
 
+    @app.put("/api/catalog/{item_id}/products/{store}")
+    def set_store_product(item_id: int, store: str, body: StoreProduct):
+        """Remember the exact product to buy for this item at this store."""
+        known_store(store)
+        catalog_item(item_id)
+        return save_product(item_id, store, body)
+
+    @app.delete("/api/catalog/{item_id}/products/{store}")
+    def forget_store_product(item_id: int, store: str):
+        known_store(store)
+        with db.tx() as conn:
+            conn.execute("DELETE FROM store_products WHERE catalog_id = ? AND store = ?", (item_id, store))
+        return catalog_item(item_id)
+
     # The list
+
+    def list_rows(where: str = "") -> list[dict]:
+        items = db.rows(
+            "SELECT l.*, c.id AS catalog_id FROM list_items l "
+            f"LEFT JOIN catalog c ON lower(c.name) = lower(l.name) {where}"
+        )
+        for i in items:
+            i["done"] = bool(i["done"])
+        return sort_items(with_products(items, key=lambda i: i["catalog_id"]))
 
     @app.get("/api/list")
     def get_list():
-        items = db.rows("SELECT * FROM list_items")
-        for i in items:
-            i["done"] = bool(i["done"])
-        return sort_items(items)
+        return list_rows()
+
+    # Filling an online basket (used by the browser userscript)
+
+    @app.get("/api/basket/{store}")
+    def basket(store: str):
+        """What's still to buy, with the saved product for this store where there is one."""
+        info = known_store(store)
+        search = link_templates()["stores"]
+        template = next(s["search"] for s in search if s["id"] == store)
+        items = [
+            {
+                "id": i["id"],
+                "name": i["name"],
+                "qty": i["qty"],
+                "product": i["products"].get(store),
+                "search": fill_link(template, i["name"]),
+            }
+            for i in list_rows("WHERE l.done = 0")
+        ]
+        return {"store": store, "name": info["name"], "items": items}
+
+    @app.post("/api/basket/{store}/link")
+    def link_from_store(store: str, body: LinkFromStore):
+        """Save the product page the person is looking at for an item on their list."""
+        known_store(store)
+        item = list_item(body.item_id)
+        with db.tx() as conn:
+            known = conn.execute("SELECT id FROM catalog WHERE lower(name) = lower(?)", (item["name"],)).fetchone()
+            catalog_id = known["id"] if known else conn.execute(
+                "INSERT INTO catalog (name, category, custom, barcode) VALUES (?, ?, 1, ?)",
+                (item["name"], item["category"], item["barcode"]),
+            ).lastrowid
+        return save_product(catalog_id, store, body)
+
+    @app.get("/userscript/" + USERSCRIPT_NAME, include_in_schema=False)
+    def userscript(request: Request):
+        """The Tampermonkey script, pointed back at this server."""
+        template = next((d / USERSCRIPT_NAME for d in USERSCRIPT_DIRS if (d / USERSCRIPT_NAME).exists()), None)
+        if not template:
+            raise HTTPException(404, "The userscript isn't in this build")
+        server = (os.environ.get("PUBLIC_URL") or str(request.base_url)).rstrip("/")
+        host = urllib.parse.urlsplit(server).hostname or "localhost"
+        script = template.read_text().replace("__SERVER__", server).replace("__HOST__", host)
+        return Response(script, media_type="text/javascript; charset=utf-8", headers={"Cache-Control": "no-cache"})
 
     @app.post("/api/list", status_code=201)
     def add_to_list(body: NewListItem):
@@ -254,7 +364,7 @@ def create_app(db_path: str | None = None, static_dir: str | None = None, fetch:
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str):
-            if path.startswith("api/"):
+            if path.startswith(("api/", "userscript/")):
                 raise HTTPException(404)
             file = (static / path).resolve()
             if path and file.is_file() and static.resolve() in file.parents:

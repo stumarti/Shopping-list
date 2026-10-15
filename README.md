@@ -2,7 +2,7 @@
 
 A shared grocery list for two iPhones (and an iPad), synced through a small server on your home network. (*The press* is what we call the kitchen cupboard in Ireland.)
 
-> Just want a simple shared list in your browser? [`web/`](web/README.md) is a separate React + FastAPI version in one Docker container: `cd web && docker compose up -d --build`, then open port 8080.
+> Just want a simple shared list in your browser? [`web/`](web/README.md) is a separate React + FastAPI version in one Docker container, with a browser helper that fills your Tesco or Dunnes basket. Run it with `cd web && docker compose up -d --build` (port 8080), or use the ready-made Docker Compose / Unraid package from the releases.
 
 - **Add items** by scanning a barcode, taking a photo (Claude identifies the type, brand and size), or typing ("2 L milk, bread, 6 eggs").
 - **Grouped by aisle** in a typical supermarket order, which you can rearrange to match your shop.

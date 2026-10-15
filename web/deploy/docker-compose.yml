@@ -1,0 +1,22 @@
+# Shopping list: ready to run on Unraid (Compose Manager) or any machine with Docker Compose.
+# Settings live in .env next to this file; see .env.example and README.md.
+services:
+  shopping-list:
+    image: __IMAGE__
+    container_name: shopping-list
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      # Who owns the data folder. Unraid's appdata uses 99:100 (nobody:users).
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-Europe/Dublin}
+      # The address you open the list at, if it's different from what the browser sends
+      # (for example behind a reverse proxy). Used for the browser helper's update link.
+      - PUBLIC_URL=${PUBLIC_URL:-}
+      # Only set these if Tesco or Dunnes change their search pages: {q} is the search term.
+      - TESCO_SEARCH_URL=${TESCO_SEARCH_URL:-}
+      - DUNNES_SEARCH_URL=${DUNNES_SEARCH_URL:-}
+    volumes:
+      - ${DATA_DIR:-/mnt/user/appdata/shopping-list}:/data

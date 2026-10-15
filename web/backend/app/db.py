@@ -32,6 +32,17 @@ MIGRATIONS = [
     ALTER TABLE catalog ADD COLUMN barcode TEXT NOT NULL DEFAULT '';
     ALTER TABLE list_items ADD COLUMN barcode TEXT NOT NULL DEFAULT ''
     """,
+    # 2: the exact product to buy at each store, saved per common item
+    """
+    CREATE TABLE store_products (
+        catalog_id INTEGER NOT NULL REFERENCES catalog (id) ON DELETE CASCADE,
+        store TEXT NOT NULL,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        saved_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (catalog_id, store)
+    )
+    """,
 ]
 
 
@@ -46,6 +57,7 @@ class Database:
         self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
         self._migrate()
         self._seed()

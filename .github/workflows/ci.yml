@@ -90,6 +90,17 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: Browser helper end-to-end test
+        working-directory: web/userscript
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run check
+          PYTHON="$(which python)" npm test
       - name: Build the container
         working-directory: web
         run: docker compose build
+      - name: Check the Compose / Unraid package builds
+        run: |
+          web/deploy/package.sh ghcr.io/example/shopping-list-web:test test example/repo dist
+          cd dist/shopping-list && docker compose config --quiet

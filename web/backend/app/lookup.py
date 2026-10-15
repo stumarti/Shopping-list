@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -15,10 +16,21 @@ OPEN_FACTS = [
     ("world.openpetfoodfacts.org", "Other"),
 ]
 
-# Checked October 2026. {q} is replaced with the search term.
-STORE_SEARCH = {
-    "tesco": ("Tesco", "https://www.tesco.ie/shop/en-IE/search?query={q}"),
-    "dunnes": ("Dunnes", "https://www.dunnesstoresgrocery.com/results?q={q}"),
+# Checked October 2026. {q} is replaced with the search term. Product pages look like
+# tesco.ie/shop/en-IE/products/292769876 and dunnesstoresgrocery.com/product/<name>-id-100806897.
+STORES = {
+    "tesco": {
+        "name": "Tesco",
+        "host": "www.tesco.ie",
+        "search": "https://www.tesco.ie/shop/en-IE/search?query={q}",
+        "product": re.compile(r"^/(?:shop|groceries)/en-IE/products/(\d+)/?$"),
+    },
+    "dunnes": {
+        "name": "Dunnes",
+        "host": "www.dunnesstoresgrocery.com",
+        "search": "https://www.dunnesstoresgrocery.com/results?q={q}",
+        "product": re.compile(r"^/product/[a-z0-9-]*?(\d{6,})/?$"),
+    },
 }
 BARCODE_DIRECTORY = {
     "name": "Open Food Facts",
@@ -122,9 +134,30 @@ def lookup_barcode(code: str, fetch: Fetch = http_fetch) -> dict | None:
     return None
 
 
+def fill_link(template: str, value: str) -> str:
+    return template.replace("{q}", urllib.parse.quote(value.strip())).replace("{code}", urllib.parse.quote(value.strip()))
+
+
 def link_templates() -> dict:
     stores = [
-        {"id": sid, "name": name, "search": os.environ.get(f"{sid.upper()}_SEARCH_URL") or url}
-        for sid, (name, url) in STORE_SEARCH.items()
+        {"id": sid, "name": s["name"], "search": os.environ.get(f"{sid.upper()}_SEARCH_URL") or s["search"]}
+        for sid, s in STORES.items()
     ]
     return {"stores": stores, "barcodes": BARCODE_DIRECTORY}
+
+
+def product_url(store: str, url: str) -> str:
+    """Tidy a pasted product link down to the product page, or raise ValueError saying what's wrong."""
+    info = STORES.get(store)
+    if not info:
+        raise ValueError("Unknown store")
+    url = url.strip()
+    if "://" not in url:
+        url = "https://" + url
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname or ""
+    if parsed.scheme not in ("http", "https") or host.removeprefix("www.") != info["host"].removeprefix("www."):
+        raise ValueError(f"That isn't a {info['name']} link. Open the product on {info['host']} and copy its address.")
+    if not info["product"].match(parsed.path):
+        raise ValueError(f"That's a {info['name']} page, but not a product. Open the product itself and copy its address.")
+    return f"https://{info['host']}{parsed.path.rstrip('/')}"
