@@ -5,7 +5,7 @@ import { buildSearchUrl, cleanPageText, DEFAULT_SEARCH_URLS, searchUrls } from "
 
 describe("stores", () => {
   it("builds encoded search URLs and honours overrides", () => {
-    expect(buildSearchUrl(DEFAULT_SEARCH_URLS.tesco, " Avonmore milk 2 L ")).toBe("https://www.tesco.ie/groceries/en-IE/search?query=Avonmore%20milk%202%20L");
+    expect(buildSearchUrl(DEFAULT_SEARCH_URLS.tesco, " Avonmore milk 2 L ")).toBe("https://www.tesco.ie/shop/en-IE/search?query=Avonmore%20milk%202%20L");
     expect(searchUrls({ DUNNES_SEARCH_URL: "https://d.example/s?q={q}" }).dunnes).toBe("https://d.example/s?q={q}");
   });
 

@@ -80,3 +80,126 @@ def test_serves_the_react_app(tmp_path):
     assert c.get("/api/nope").status_code == 404
     assert c.get("/../../etc/passwd").status_code in (200, 404)
     assert "root:" not in c.get("/%2e%2e/%2e%2e/etc/passwd").text
+
+
+# Barcodes, store links and building the common items
+
+
+def fake_open_facts(products: dict[str, dict]):
+    """A stand-in for the Open Facts APIs: {host fragment + barcode: product}."""
+    calls = []
+
+    def fetch(url: str):
+        calls.append(url)
+        for key, product in products.items():
+            host, code = key.split(":")
+            if host in url and f"/product/{code}.json" in url:
+                return {"status": 1, "product": product}
+        return {"status": 0}
+
+    fetch.calls = calls
+    return fetch
+
+
+def make(tmp_path, fetch):
+    return TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none"), fetch=fetch))
+
+
+def test_barcode_found_in_open_food_facts(tmp_path):
+    fetch = fake_open_facts({
+        "openfoodfacts:5391528370313": {
+            "product_name": "Low Low Light Spread", "brands": "Kerry, Low Low", "quantity": "500 g",
+            "categories_tags": ["en:dairies", "en:spreads"],
+        }
+    })
+    c = make(tmp_path, fetch)
+    r = c.get("/api/barcode/5391528370313").json()
+    assert r == {
+        "barcode": "5391528370313", "name": "Low Low Light Spread", "brand": "Kerry",
+        "quantity": "500 g", "category": "Dairy & eggs", "source": "openfoodfacts",
+    }
+
+
+def test_barcode_falls_through_to_sister_databases(tmp_path):
+    fetch = fake_open_facts({"openbeautyfacts:12345678": {"product_name": "Mint toothpaste", "categories_tags": []}})
+    r = make(tmp_path, fetch).get("/api/barcode/12345678").json()
+    assert r["name"] == "Mint toothpaste" and r["category"] == "Toiletries" and r["source"] == "openbeautyfacts"
+
+
+def test_barcode_unknown_unreachable_and_invalid(tmp_path):
+    assert make(tmp_path, fake_open_facts({})).get("/api/barcode/00000000").status_code == 404
+
+    def down(url):
+        raise OSError("no network")
+
+    r = make(tmp_path, down).get("/api/barcode/00000000")
+    assert r.status_code == 502 and "Type the name" in r.json()["detail"]
+    assert make(tmp_path, down).get("/api/barcode/12ab").status_code == 422
+
+
+def test_barcode_is_remembered(tmp_path):
+    fetch = fake_open_facts({})
+    c = make(tmp_path, fetch)
+    c.post("/api/list", json={"name": "Barry's tea", "category": "Breakfast", "barcode": "5391501610010"})
+    assert any(i["barcode"] == "5391501610010" for i in c.get("/api/catalog").json())
+    r = c.get("/api/barcode/5391501610010").json()
+    assert r["name"] == "Barry's tea" and r["source"] == "yours"
+    assert fetch.calls == []
+    # Adding by name again carries the barcode onto the list line.
+    c.post("/api/list/clear-done")
+    item = c.post("/api/list", json={"name": "barry's tea"}).json()
+    assert item["barcode"] == "5391501610010"
+
+
+def test_links(client):
+    links = client.get("/api/links").json()
+    assert [s["name"] for s in links["stores"]] == ["Tesco", "Dunnes"]
+    assert links["stores"][0]["search"] == "https://www.tesco.ie/shop/en-IE/search?query={q}"
+    assert links["stores"][1]["search"] == "https://www.dunnesstoresgrocery.com/results?q={q}"
+    assert "{code}" in links["barcodes"]["product"] and "{q}" in links["barcodes"]["search"]
+
+
+def test_store_links_can_be_overridden(tmp_path, monkeypatch):
+    monkeypatch.setenv("DUNNES_SEARCH_URL", "https://example.ie/s?q={q}")
+    links = make(tmp_path, fake_open_facts({})).get("/api/links").json()
+    assert links["stores"][1]["search"] == "https://example.ie/s?q={q}"
+
+
+def test_bulk_add_common_items(client):
+    r = client.post("/api/catalog/bulk", json={
+        "text": "- kombucha\n\n  Oat milk \nmilk\n• kimchi\nkombucha",
+        "category": "Fridge",
+    }).json()
+    assert r == {"added": ["Kombucha", "Oat milk", "Kimchi"], "skipped": ["Milk", "Kombucha"]}
+    fridge = [i["name"] for i in client.get("/api/catalog").json() if i["category"] == "Fridge"]
+    assert {"Kombucha", "Oat milk", "Kimchi"} <= set(fridge)
+
+
+def test_edit_common_item(client):
+    milk = next(i for i in client.get("/api/catalog").json() if i["name"] == "Milk")
+    r = client.patch(f"/api/catalog/{milk['id']}", json={"name": "Avonmore milk", "barcode": "5391507540016"})
+    assert r.json()["name"] == "Avonmore milk" and r.json()["barcode"] == "5391507540016"
+    assert client.patch(f"/api/catalog/{milk['id']}", json={"name": "butter"}).status_code == 409
+    assert client.patch(f"/api/catalog/{milk['id']}", json={"barcode": "123"}).status_code == 422
+    assert client.patch(f"/api/catalog/{milk['id']}", json={"category": "Nowhere"}).json()["category"] == "Other"
+    assert client.patch(f"/api/catalog/{milk['id']}", json={"barcode": ""}).json()["barcode"] == ""
+
+
+def test_database_from_before_barcodes_is_upgraded(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript("""
+        CREATE TABLE catalog (id INTEGER PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL,
+                              custom INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE list_items (id INTEGER PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL,
+            qty INTEGER NOT NULL DEFAULT 1, note TEXT NOT NULL DEFAULT '', done INTEGER NOT NULL DEFAULT 0,
+            added_at TEXT NOT NULL DEFAULT (datetime('now')));
+        INSERT INTO catalog (name, category) VALUES ('Milk', 'Dairy & eggs');
+        INSERT INTO list_items (name, category) VALUES ('Milk', 'Dairy & eggs');
+    """)
+    old.commit()
+    old.close()
+    c = TestClient(create_app(db_path=str(path), static_dir=str(tmp_path / "none")))
+    assert c.get("/api/list").json()[0]["barcode"] == ""
+    assert [i["name"] for i in c.get("/api/catalog").json()] == ["Milk"]

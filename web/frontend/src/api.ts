@@ -1,5 +1,18 @@
-export type CatalogItem = { id: number; name: string; category: string; custom: boolean };
-export type ListItem = { id: number; name: string; category: string; qty: number; note: string; done: boolean };
+export type CatalogItem = { id: number; name: string; category: string; custom: boolean; barcode: string };
+export type ListItem = {
+  id: number;
+  name: string;
+  category: string;
+  qty: number;
+  note: string;
+  done: boolean;
+  barcode: string;
+};
+export type Links = {
+  stores: { id: string; name: string; search: string }[];
+  barcodes: { name: string; product: string; search: string };
+};
+export type Product = { barcode: string; name: string; brand: string; quantity: string; category: string; source: string };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -20,10 +33,33 @@ export const api = {
   categories: () => call<string[]>("/categories"),
   catalog: () => call<CatalogItem[]>("/catalog"),
   list: () => call<ListItem[]>("/list"),
-  add: (name: string, category: string, qty = 1) => call<ListItem>("/list", json("POST", { name, category, qty })),
+  links: () => call<Links>("/links"),
+  barcode: (code: string) => call<Product>(`/barcode/${encodeURIComponent(code)}`),
+  add: (name: string, category: string, qty = 1, barcode = "") =>
+    call<ListItem>("/list", json("POST", { name, category, qty, barcode })),
   change: (id: number, change: Partial<Pick<ListItem, "qty" | "done" | "note">>) =>
     call<ListItem>(`/list/${id}`, json("PATCH", change)),
   remove: (id: number) => call<void>(`/list/${id}`, { method: "DELETE" }),
   clearDone: () => call<{ removed: number }>("/list/clear-done", { method: "POST" }),
   forget: (id: number) => call<void>(`/catalog/${id}`, { method: "DELETE" }),
+  editCommon: (id: number, change: Partial<Pick<CatalogItem, "name" | "category" | "barcode">>) =>
+    call<CatalogItem>(`/catalog/${id}`, json("PATCH", change)),
+  addCommon: (text: string, category: string) =>
+    call<{ added: string[]; skipped: string[] }>("/catalog/bulk", json("POST", { text, category })),
 };
+
+export const isBarcode = (text: string) => /^\d{8,14}$/.test(text.trim());
+
+/** Fill a link template's {q} or {code}. */
+export const fillLink = (template: string, value: string) =>
+  template.replace("{q}", encodeURIComponent(value.trim())).replace("{code}", encodeURIComponent(value.trim()));
+
+export function itemLinks(links: Links | null, item: { name: string; barcode: string }) {
+  if (!links) return [];
+  return [
+    ...links.stores.map((s) => ({ label: s.name, href: fillLink(s.search, item.name), title: `Search ${s.name} for ${item.name}` })),
+    item.barcode
+      ? { label: "Barcode", href: fillLink(links.barcodes.product, item.barcode), title: `${item.barcode} on ${links.barcodes.name}` }
+      : { label: "Barcode", href: fillLink(links.barcodes.search, item.name), title: `Find ${item.name} on ${links.barcodes.name}` },
+  ];
+}

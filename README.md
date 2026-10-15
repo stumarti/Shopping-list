@@ -176,7 +176,7 @@ AI_BACKEND=ollama-then-claude                   # or "ollama" to never use Claud
 The app's tag icon compares what your list would cost at Tesco and Dunnes. It is **read-only**: it searches each store's public website, never signs in, and never touches a basket.
 
 ```sh
-# in .env: uncomment WORKER_URL and WORKER_TOKEN, and set DUNNES_SEARCH_URL to your branch
+# in .env: uncomment WORKER_URL and WORKER_TOKEN
 docker compose --profile prices up -d --build
 ```
 

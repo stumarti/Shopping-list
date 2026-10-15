@@ -62,7 +62,7 @@ Tick each box as you go. ⚠️ marks the things most likely to need a fix.
 - [ ] ⚠️ Open each store: do the matched products and prices look right compared with the websites?
 - [ ] If every item says *Couldn't load the store page*, run `docker compose logs worker` and send the errors.
       Stores may block automated browsers; if so, say which store
-- [ ] Set `DUNNES_SEARCH_URL` to your own branch's search URL (see `.env.example`) and check again
+- [ ] If a store's results are empty, check its search address in `.env.example` still works in a browser
 
 ## 8. Online ordering (once the store adapters are finished)
 

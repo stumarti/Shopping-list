@@ -2,13 +2,12 @@ export type StoreId = "tesco" | "dunnes";
 
 /**
  * Search page for each store. {q} is replaced with the URL-encoded query.
- * Override with TESCO_SEARCH_URL / DUNNES_SEARCH_URL if a store changes its URLs. Dunnes' online shop
- * is per-branch: open it in a browser, pick your store, search for anything, and copy that URL with {q}
- * in place of your search term.
+ * Override with TESCO_SEARCH_URL / DUNNES_SEARCH_URL if a store changes its URLs: search the site for
+ * anything in a browser and copy that URL with {q} in place of your search term. (Checked October 2026.)
  */
 export const DEFAULT_SEARCH_URLS: Record<StoreId, string> = {
-  tesco: "https://www.tesco.ie/groceries/en-IE/search?query={q}",
-  dunnes: "https://www.dunnesstoresgrocery.com/sm/delivery/rsid/258/results?q={q}",
+  tesco: "https://www.tesco.ie/shop/en-IE/search?query={q}",
+  dunnes: "https://www.dunnesstoresgrocery.com/results?q={q}",
 };
 
 export function searchUrls(env: NodeJS.ProcessEnv = process.env): Record<StoreId, string> {

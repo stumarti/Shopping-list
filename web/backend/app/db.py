@@ -26,6 +26,15 @@ CREATE TABLE IF NOT EXISTS list_items (
 """
 
 
+MIGRATIONS = [
+    # 1: barcodes on common items and list items
+    """
+    ALTER TABLE catalog ADD COLUMN barcode TEXT NOT NULL DEFAULT '';
+    ALTER TABLE list_items ADD COLUMN barcode TEXT NOT NULL DEFAULT ''
+    """,
+]
+
+
 class Database:
     def __init__(self, path: str):
         self.path = path
@@ -38,7 +47,19 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self._seed()
+
+    def _migrate(self):
+        """Add to MIGRATIONS to change the database; never edit one that has shipped."""
+        version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+        for number, sql in enumerate(MIGRATIONS[version:], start=version + 1):
+            with self.tx() as conn:
+                # executescript would commit our transaction, so run the statements one by one.
+                for statement in sql.split(";"):
+                    if statement.strip():
+                        conn.execute(statement)
+                conn.execute(f"PRAGMA user_version = {number}")
 
     def _seed(self):
         if self.conn.execute("SELECT count(*) FROM catalog").fetchone()[0]:
