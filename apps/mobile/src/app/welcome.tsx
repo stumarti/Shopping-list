@@ -24,7 +24,8 @@ export default function WelcomeScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const needsName = !joining || !sameDevicePerson;
-  const ready = serverUrl.trim() && (!needsName || name.trim()) && (joining || setupToken.trim());
+  // The setup token is only needed when the server sets APP_TOKEN; the server says so if it's missing.
+  const ready = serverUrl.trim() && (!needsName || name.trim());
 
   async function go() {
     if (!ready || busy) return;
@@ -54,7 +55,7 @@ export default function WelcomeScreen() {
               ? sameDevicePerson
                 ? "This device will sign in as you and share your lists."
                 : "You've been invited to a shared shopping list."
-              : "Connect to the server running at home. You'll find the setup token in its .env file (APP_TOKEN)."}
+              : "Connect to the server running at home."}
           </Text>
         </View>
 
@@ -81,12 +82,12 @@ export default function WelcomeScreen() {
           </View>
           {joining ? null : (
             <View style={{ gap: 6 }}>
-              <Label>Setup token</Label>
+              <Label>Setup token (only if your server has one)</Label>
               <TextInput
                 accessibilityLabel="Setup token"
                 value={setupToken}
                 onChangeText={setSetupToken}
-                placeholder="APP_TOKEN from the server's .env"
+                placeholder="APP_TOKEN from the server's .env, or leave empty"
                 placeholderTextColor={colors.faint}
                 autoCapitalize="none"
                 autoCorrect={false}

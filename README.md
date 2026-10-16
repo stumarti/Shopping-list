@@ -28,14 +28,14 @@ On Windows or a Mac, install [Docker Desktop](https://www.docker.com/products/do
 ```sh
 git clone https://github.com/stumarti/Shopping-list.git shopping-list
 cd shopping-list
-cp .env.example .env              # then fill in APP_TOKEN and ANTHROPIC_API_KEY (see below)
+cp .env.example .env              # works as it is; nothing to fill in
 docker compose up -d --build
 curl http://localhost:8787/api/health
-# {"ok":true,"version":"0.3.0","ai":{"backend":"claude",...},"priceCheck":false,...}
+# {"ok":true,"version":"0.3.0","ai":null,"priceCheck":false,...}
 ```
 
-- `APP_TOKEN`: a long random **setup** secret, used once by the first person to connect. Everyone else joins with an invite link from the app, so nobody else needs it. Generate one with `openssl rand -hex 24`.
-- `ANTHROPIC_API_KEY`: from [console.anthropic.com](https://console.anthropic.com). This is the pay-as-you-go API, separate from a Claude.ai subscription. A photo costs about a cent. Without a key, everything works except photo identification, and typed lists are split with simple rules instead.
+- **No setup token by default.** Anyone who can reach the server can join, so keep it on your home network or Tailscale. To lock it down later, set `APP_TOKEN` (`openssl rand -hex 24`) in `.env` and enter it in the app the first time.
+- **No AI by default.** Barcodes, typed items, sharing and filling your online basket all work (items without an exact match ask you to choose). Photo identification, receipt reading and price checks need AI; see [Optional: AI](#optional-ai-claude-or-a-local-model).
 - Data lives in the `shopping-data` Docker volume (`/data/shopping.db`).
 
 ### The Compose file
@@ -89,16 +89,11 @@ To use a different port on the host, change the left side only, e.g. `"8080:8787
 
 ### Your `.env`
 
-Only the first two are required. The rest are explained in the optional sections below.
+Nothing is required. Everything is explained in the optional sections below.
 
 ```sh
-APP_TOKEN=<openssl rand -hex 24>
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Local AI instead of (or before) Claude
-# OLLAMA_URL=http://host.docker.internal:11434
-# OLLAMA_MODEL=...
-# AI_BACKEND=ollama-then-claude          # claude | ollama | ollama-then-claude | none
+# Optional setup secret; empty means anyone on your network can join
+# APP_TOKEN=
 
 # Price checks and online baskets (needs --profile prices)
 # WORKER_URL=http://worker:8788
@@ -159,9 +154,13 @@ On home Wi-Fi, `http://<server-ip>:8787` works. To also sync and use photo ident
 2. On the server, run `tailscale serve --bg 8787`. This gives you `https://<server-name>.<tailnet>.ts.net` with a real HTTPS certificate.
 3. Use that address in the app.
 
-### Optional: a local AI model (Ollama)
+### Optional: AI (Claude or a local model)
 
-Run [Ollama](https://ollama.com) on the Windows PC or a Mac mini, pull a vision-capable model, then set these in `.env` and restart:
+AI is off unless you set it up. It reads product photos and receipts, and splits typed lists like "2 L milk, bread, 6 eggs" more cleverly.
+
+**Claude:** add `ANTHROPIC_API_KEY=sk-ant-...` to `.env` and restart. Get a key from [console.anthropic.com](https://console.anthropic.com). It's the pay-as-you-go API, separate from a Claude.ai subscription; a photo costs about a cent.
+
+**A local model (Ollama):** run [Ollama](https://ollama.com) on the Windows PC or a Mac mini, pull a vision-capable model, then set these in `.env` and restart:
 
 ```sh
 OLLAMA_URL=http://host.docker.internal:11434   # or http://<pc-ip>:11434 if Ollama is on another machine
@@ -250,7 +249,7 @@ On iOS 16 and later, turn on **Settings → Privacy & Security → Developer Mod
 
 ### Signing in
 
-The first time the app opens, enter your name, the server address and the `APP_TOKEN`, then tap **Connect**. The server gives this device its own login, stored in the iPhone Keychain.
+The first time the app opens, enter your name and the server address (and the `APP_TOKEN`, only if you set one), then tap **Connect**. The server gives this device its own login, stored in the iPhone Keychain.
 
 Then, in **Sharing & sync** (the people icon):
 - **Invite someone** sends a link your partner opens on their phone to join as themselves. They need the app installed first, so register their phone with `device:create` before you build (or use TestFlight, below).

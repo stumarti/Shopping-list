@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { createApp } from "../src/app.js";
+import { openDb } from "../src/db.js";
 import { setup } from "./helpers.js";
 
 describe("first-time setup", () => {
@@ -16,6 +18,26 @@ describe("first-time setup", () => {
       body: JSON.stringify({ setupToken: "wrong", name: "Mallory" }),
     });
     expect(bad.status).toBe(401);
+  });
+
+  it("says when the setup token is missing rather than wrong", async () => {
+    const { app } = setup();
+    const post = (body: unknown) =>
+      app.request("/api/setup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    expect((await (await post({ name: "Sam" })).json()).error).toBe("This server needs its setup token (APP_TOKEN from its .env).");
+    expect((await (await post({ name: "Sam", setupToken: "nope" })).json()).error).toBe("That setup token doesn't match the server's APP_TOKEN.");
+  });
+
+  it("lets anyone set up when the server has no setup token", async () => {
+    const app = createApp({ db: openDb(":memory:") });
+    const res = await app.request("/api/setup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Sam" }),
+    });
+    expect(res.status).toBe(200);
+    const { token } = await res.json();
+    expect((await app.request("/api/state", { headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
   });
 
   it("rejects unknown tokens and the setup secret itself, but leaves health open", async () => {

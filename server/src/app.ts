@@ -66,7 +66,12 @@ export function createApp({ db, setupToken, assistant, aiBackend, priceWorker, s
   app.post("/api/setup", async (c) => {
     const parsed = z.object({ setupToken: z.string().default(""), name: z.string().min(1).max(40), device: Device }).safeParse(await json(c.req));
     if (!parsed.success) return c.json({ error: "Enter your name." }, 400);
-    if (setupToken && !secretMatches(parsed.data.setupToken, setupToken)) return c.json({ error: "That setup token doesn't match the server's APP_TOKEN." }, 401);
+    if (setupToken && !secretMatches(parsed.data.setupToken, setupToken)) {
+      const error = parsed.data.setupToken
+        ? "That setup token doesn't match the server's APP_TOKEN."
+        : "This server needs its setup token (APP_TOKEN from its .env).";
+      return c.json({ error }, 401);
+    }
     const user = createUser(db, parsed.data.name);
     return c.json({ user, token: issueToken(db, user.id, parsed.data.device ?? null) });
   });
