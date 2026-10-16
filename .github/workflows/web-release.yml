@@ -1,0 +1,146 @@
+# Builds the web shopping list image, pushes it to GitHub's container registry (ghcr.io) and makes a
+# ready-to-run Docker Compose / Unraid package.
+#
+#   push to main      → image :latest and :sha-<commit>, package attached to the run as an artifact
+#   push a tag v1.2.3 → image :1.2.3 and :sha-<commit>, package attached to a GitHub release
+#   Run workflow      → same as a push of the branch you pick (image tagged with the branch name)
+name: Web image and Unraid package
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the release
+  packages: write # push to ghcr.io
+
+concurrency:
+  group: web-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: API tests
+        working-directory: web/backend
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the React app
+        working-directory: web/frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Browser helper end-to-end test
+        working-directory: web/userscript
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run check
+          PYTHON="$(which python)" npm test
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.names.outputs.image }}
+      version: ${{ steps.names.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out names and version
+        id: names
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"      # registry names must be lower case
+          repo_image="ghcr.io/${owner}/shopping-list-web"
+          short="${GITHUB_SHA::7}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            tag="$version"
+          elif [[ "$GITHUB_REF_NAME" == "${{ github.event.repository.default_branch }}" ]]; then
+            version="main-${short}"
+            tag="latest"
+          else
+            branch="$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'a-zA-Z0-9._-' '-')"
+            version="${branch}-${short}"
+            tag="$branch"
+          fi
+          {
+            echo "image=${repo_image}:${tag}"
+            echo "tags=${repo_image}:${tag},${repo_image}:sha-${short}"
+            echo "version=${version}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (amd64 for Unraid, arm64 for a Pi)
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.names.outputs.tags }}
+          build-args: VERSION=${{ steps.names.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.names.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Check the image starts
+        run: |
+          docker run -d --name smoke -p 8080:8080 -e PUID=99 -e PGID=100 "${{ steps.names.outputs.image }}"
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/api/health; then break; fi
+            sleep 1
+          done
+          curl -fsS http://localhost:8080/api/health | grep -q '"ok":true'
+          curl -fsS http://localhost:8080/userscript/shopping-list.user.js | grep -q '@connect      localhost'
+          docker exec smoke sh -c 'stat -c "%u:%g" /data/shopping.db' | grep -qx '99:100'
+          docker logs smoke
+          docker rm -f smoke
+
+  package:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Compose / Unraid package
+        id: pack
+        run: |
+          zip="$(web/deploy/package.sh "${{ needs.image.outputs.image }}" "${{ needs.image.outputs.version }}" "${{ github.repository }}" dist)"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+          unzip -l "$zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shopping-list-unraid-${{ needs.image.outputs.version }}
+          path: dist/shopping-list/
+          include-hidden-files: true
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pack.outputs.zip }}
+          generate_release_notes: true
+          body: |
+            **Image:** `${{ needs.image.outputs.image }}`
+
+            Download `shopping-list-unraid-${{ needs.image.outputs.version }}.zip`, unzip it, and follow its README:
+            on Unraid, paste `docker-compose.yml` and `.env` into a new Compose Manager stack and press Compose Up.

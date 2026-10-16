@@ -67,3 +67,40 @@ jobs:
         run: |
           cp .env.example .env
           docker compose --profile prices build
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: API tests
+        working-directory: web/backend
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
+      - name: Build the React app
+        working-directory: web/frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Browser helper end-to-end test
+        working-directory: web/userscript
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run check
+          PYTHON="$(which python)" npm test
+      - name: Build the container
+        working-directory: web
+        run: docker compose build
+      - name: Check the Compose / Unraid package builds
+        run: |
+          web/deploy/package.sh ghcr.io/example/shopping-list-web:test test example/repo dist
+          cd dist/shopping-list && docker compose config --quiet

@@ -1,0 +1,11 @@
+services:
+  shopping:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - shopping-web-data:/data
+
+volumes:
+  shopping-web-data:
