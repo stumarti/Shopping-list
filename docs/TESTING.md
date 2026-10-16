@@ -9,8 +9,8 @@ Tick each box as you go. ⚠️ marks the things most likely to need a fix.
 
 ## 1. Server
 
-- [ ] `cp .env.example .env`, fill in `APP_TOKEN` and `ANTHROPIC_API_KEY`, run `docker compose up -d --build`
-- [ ] `curl http://localhost:8787/api/health` shows `"ok":true` and `"ai":{"backend":"claude",…}`
+- [ ] `cp .env.example .env` (nothing to fill in), run `docker compose up -d --build`
+- [ ] `curl http://localhost:8787/api/health` shows `"ok":true` (and `"ai":null` until you set up AI)
 - [ ] `docker compose logs server` has no errors
 - [ ] ⚠️ From your phone's browser on home Wi-Fi, `http://<server-ip>:8787/api/health` loads (checks the firewall)
 - [ ] Optional: `tailscale serve --bg 8787`, then `https://<server>.<tailnet>.ts.net/api/health` loads on mobile data
@@ -18,9 +18,9 @@ Tick each box as you go. ⚠️ marks the things most likely to need a fix.
 ## 2. First sign-in (your iPhone)
 
 - [ ] Build and install the app as in the README (section 2), open it, and it shows the welcome screen
-- [ ] Name, server address and setup token, then **Connect**: you land on the list
+- [ ] Name and server address (leave the setup token empty), then **Connect**: you land on the list
 - [ ] Swipe the app away completely and reopen: still signed in (the token is in the Keychain)
-- [ ] **Sharing & sync** shows your name and *Connected*; Server features shows Claude and the version
+- [ ] **Sharing & sync** shows your name and *Connected*; Server features shows the version
 
 ## 3. Adding items
 

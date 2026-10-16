@@ -13,7 +13,7 @@ const dbFile = process.env.DB_FILE || "./data/shopping.db";
 mkdirSync(dirname(dbFile), { recursive: true });
 
 const setupToken = process.env.APP_TOKEN || undefined;
-if (!setupToken) console.warn("APP_TOKEN is not set: anyone who can reach the server can create an account. Fine for local dev only.");
+if (!setupToken) console.warn("APP_TOKEN is not set: anyone who can reach the server can join. Keep it on your home network or Tailscale.");
 
 const { backend, assistant } = createAssistant();
 console.log(assistant ? `AI: ${assistant.name}` : "AI: none (photo identification off, typed lists use simple parsing)");
