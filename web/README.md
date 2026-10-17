@@ -2,6 +2,7 @@
 
 A shared shopping list in one Docker container: a React page served by a FastAPI backend, with the list kept in SQLite. It comes with a browser helper that fills your Tesco or Dunnes basket.
 
+- **Next shop** (the first page): when you'll probably shop next (from your past trips: your usual gap between shops and the day you usually go) and what you'll need, aisle by aisle. Each item has a badge: **Weekly**, **Every 2 weeks** (or however often it runs) for steady habits, **Not sure** for things you buy unevenly or now and then, and **Added** for what you've added yourself. Tap × to take something off this shop (it's back for the next one; **Undo** and **Put back** are there if you change your mind). An item is on when it's expected before about halfway to the shop after, so it won't run out in between.
 - **No starter items**: your common items come from what you upload, import or add.
 - **Common items**, aisle by aisle. Tap one to see the weeks you bought it (a square per week, four to a column so habits line up, shaded by month, filled when you bought it), when it's expected next, how often you buy it, what it costs, and every purchase; and to rename it, move it, set its barcode or delete it.
 - **Settings** (top right): upload your Tesco data, **Find barcodes** for your items in Open Food Facts, set up your **aisles** (rename, reorder, add, remove), add common items in bulk, and **Start again**: remove all common items, then **Rebuild from history** (every product from an online order, and anything bought on two or more trips). **Clear all** is also at the top of Common items. Clearing never touches your list, purchase history or uploaded files.
@@ -201,6 +202,8 @@ web/
 | POST | `/api/basket/{store}/link` | Save a product for a list item `{item_id, url, title}` |
 | POST | `/api/history/{store}/import` | Record a past order `{order_ref, date, items: [{name, qty, url}]}`; saves each product |
 | POST | `/api/history/tesco/clubcard` | Upload Tesco's Clubcard data file (raw `.json` or `.zip` body) |
+| GET | `/api/next-shop` | The next shop's likely date and reason, what it needs (with badges), and what you took off |
+| POST / DELETE | `/api/next-shop/skip/{catalog_id}` | Take an item off the next shop / put it back |
 | GET | `/api/history` | Imported trips, newest first, and the items bought most often: trips, about how often, usual quantity, prices |
 | GET | `/api/history/items/{id}` | Every purchase of one common item: when, quantity, price each, where |
 | GET | `/api/aisles` | Aisles in order, with how many items each has |

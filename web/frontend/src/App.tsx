@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, isBarcode, itemLinks, type CatalogItem, type Links, type ListItem, type Product } from "./api";
 import Manage from "./Manage";
+import NextShop from "./NextShop";
 import Settings from "./Settings";
 import Shop from "./Shop";
 import Suggestions from "./Suggestions";
 
-// My list and Shop online are switched off for now (blank pages); flip these to bring them back.
+// The old tick-off list and Shop online are switched off for now; flip these to bring them back.
 const SHOW_LIST = false;
 const SHOW_SHOP = false;
 
@@ -13,7 +14,7 @@ const POLL_MS = 10_000;
 
 type Tab = "list" | "common" | "shop" | "settings";
 const TABS: [Tab, string][] = [
-  ["list", "My list"],
+  ["list", "Next shop"],
   ["shop", "Shop online"],
   ["common", "Common items"],
 ];
@@ -166,10 +167,12 @@ export default function App() {
             Settings
           </a>
         </div>
-        <p className="muted">
-          {remaining === 0 ? "Nothing to buy yet" : `${remaining} to buy`}
-          {ticked > 0 && ` · ${ticked} in the trolley`}
-        </p>
+        {SHOW_LIST && (
+          <p className="muted">
+            {remaining === 0 ? "Nothing to buy yet" : `${remaining} to buy`}
+            {ticked > 0 && ` · ${ticked} in the trolley`}
+          </p>
+        )}
         <nav className="tabs" aria-label="Pages">
           {TABS.map(([t, label]) => (
             <button key={t} className={tab === t ? "on" : ""} aria-current={tab === t ? "page" : undefined} onClick={() => go(t)}>
@@ -194,7 +197,9 @@ export default function App() {
         <Manage catalog={catalog} categories={categories} links={links} groupBy={groupBy} run={run} />
       ) : tab === "shop" ? (
         SHOW_SHOP && <Shop list={list} links={links} groupBy={groupBy} run={run} />
-      ) : !SHOW_LIST ? null : (
+      ) : !SHOW_LIST ? (
+        <NextShop listSize={list.length} groupBy={groupBy} run={run} />
+      ) : (
         <>
           <section aria-labelledby="list-heading">
             <div className="section-head">

@@ -1026,3 +1026,158 @@ progress {
 .swatch.expected {
   border: 1.5px dashed var(--ink);
 }
+
+/* Next shop */
+:root {
+  --weekly-bg: #e3efe7;
+  --weekly-ink: #14613a;
+  --scheduled-bg: #e2ecf8;
+  --scheduled-ink: #1d4f8f;
+  --unsure-bg: #fbefd5;
+  --unsure-ink: #7a4a00;
+  --added-bg: #eceeea;
+  --added-ink: #3f4741;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --weekly-bg: #1f3529;
+    --weekly-ink: #8fd6ae;
+    --scheduled-bg: #1c2b40;
+    --scheduled-ink: #9cc3f2;
+    --unsure-bg: #3a2e15;
+    --unsure-ink: #f0c879;
+    --added-bg: #2a302c;
+    --added-ink: #c5ccc7;
+  }
+}
+
+.shop-when .eyebrow {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.shop-when h2 {
+  margin: 2px 0 0;
+  font-size: 1.35rem;
+}
+
+.shop-when h2 .muted {
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+.shop-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shop-items li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+
+.shop-items li:first-child {
+  border-top: none;
+}
+
+.shop-item-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.shop-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 0.8rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge.weekly {
+  background: var(--weekly-bg);
+  color: var(--weekly-ink);
+}
+
+.badge.scheduled {
+  background: var(--scheduled-bg);
+  color: var(--scheduled-ink);
+}
+
+.badge.unsure {
+  background: var(--unsure-bg);
+  color: var(--unsure-ink);
+}
+
+.badge.added {
+  background: var(--added-bg);
+  color: var(--added-ink);
+}
+
+.shop-items .remove {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+}
+
+.shop-items .remove:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.undo {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--ground);
+  font-size: 0.9rem;
+}
+
+.shop-add {
+  margin-top: 14px;
+}
+
+.skipped {
+  margin-top: 12px;
+  font-size: 0.9rem;
+}
+
+.skipped summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.skipped ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.skipped li {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.hint .badge {
+  font-size: 0.7rem;
+}

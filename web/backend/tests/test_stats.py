@@ -81,3 +81,38 @@ def test_weekly_counts_from_first_purchase():
     ]
     long_ago = [{"store": "t", "order_ref": "x", "bought_on": "2024-01-01", "qty": 1}]
     assert len(weekly(long_ago, TODAY)) == 52 and weekly([], TODAY)[-1]["week"] == "2026-10-12"
+
+
+def test_shop_date_on_usual_day():
+    from app.stats import shop_plan_date
+    # Saturdays, weekly; last shop Sat 10 Oct, today Sat 17 Oct
+    sats = ["2026-09-19", "2026-09-26", "2026-10-03", "2026-10-10"]
+    p = shop_plan_date(sats, TODAY)
+    assert p == {"date": "2026-10-17", "every_days": 7, "last_shop": "2026-10-10",
+                 "reason": "You usually shop on Saturdays, about every week"}
+    # Shopped today already: next is a week on
+    assert shop_plan_date(sats + ["2026-10-17"], TODAY)["date"] == "2026-10-24"
+    # Overdue: never in the past, moved to the next Saturday on or after today
+    assert shop_plan_date(["2026-08-01", "2026-08-08", "2026-08-15"], datetime.date(2026, 10, 14))["date"] == "2026-10-17"
+    # No pattern of days: just the gap
+    p = shop_plan_date(["2026-10-01", "2026-10-11"], TODAY)
+    assert p["date"] == "2026-10-21" and p["reason"] == "You usually shop about every 10 days"
+    assert shop_plan_date([], TODAY) is None
+
+
+def test_what_goes_on_the_next_shop():
+    from app.stats import for_next_shop
+    shop = datetime.date(2026, 10, 24)  # a week from TODAY, shopping weekly
+    weekly = {"name": "Milk", **bought(7, 14, 21, 28)}  # due today
+    assert for_next_shop(weekly, shop, 7, TODAY) == {"badge": "weekly", "label": "Weekly", "detail": "Last bought 10 Oct, due Sat 17 Oct"}
+    fortnightly_due = {"name": "Bananas", **bought(10, 24, 38, 52)}  # due in 4 days
+    assert for_next_shop(fortnightly_due, shop, 7, TODAY)["label"] == "Every 2 weeks"
+    assert for_next_shop(fortnightly_due, shop, 7, TODAY)["badge"] == "scheduled"
+    fortnightly_just_bought = {"name": "Bread", **bought(1, 15, 29, 43)}  # due in 13 days: the shop after
+    assert for_next_shop(fortnightly_just_bought, shop, 7, TODAY) is None
+    uneven = {"name": "Wine", **bought(9, 12, 27, 30, 45)}
+    assert for_next_shop(uneven, shop, 7, TODAY)["badge"] == "unsure"
+    stopped = {"name": "Formula", **bought(60, 67, 74, 81)}
+    assert for_next_shop(stopped, shop, 7, TODAY) is None
+    twice = {"name": "Cake", **bought(10, 20)}
+    assert for_next_shop(twice, shop, 7, TODAY) is None  # needs three trips to tell
