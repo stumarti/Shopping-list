@@ -1,9 +1,12 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useState } from "react";
 import { api, itemLinks, type CatalogItem, type CommonChange, type FoodGroup, type ItemHistory, type Links } from "./api";
 import { byTrips, OrderToggle, useOrder } from "./Order";
 import PriceChart from "./PriceChart";
 import Spending from "./Spending";
 import WeeklyChart from "./WeeklyChart";
+import Icon from "./Icon";
+
+const Scanner = lazy(() => import("./Scanner"));
 
 type Props = {
   catalog: CatalogItem[];
@@ -157,6 +160,7 @@ function ItemDetail({
   const [showTable, setShowTable] = useState(false);
   const [name, setName] = useState(item.name);
   const [barcode, setBarcode] = useState(item.barcode);
+  const [scanning, setScanning] = useState(false);
   const groupName = (id: number | null) => catalog.find((c) => c.id === id)?.name ?? "";
   const [group, setGroup] = useState(groupName(item.group_id));
   const [orSet, setOrSet] = useState(groupName(item.or_id));
@@ -393,15 +397,33 @@ function ItemDetail({
             Barcode
             {item.barcode && item.barcode_source && item.barcode_source !== "you" && <em className="muted"> (found in Open Food Facts)</em>}
           </span>
-          <input
-            value={barcode}
-            inputMode="numeric"
-            maxLength={14}
-            placeholder="None"
-            onChange={(e) => setBarcode(e.target.value.replace(/\D/g, ""))}
-            onBlur={() => barcode !== item.barcode && save({ barcode })}
-          />
+          <span className="with-unit">
+            <input
+              value={barcode}
+              inputMode="numeric"
+              maxLength={14}
+              placeholder="None"
+              onChange={(e) => setBarcode(e.target.value.replace(/\D/g, ""))}
+              onBlur={() => barcode !== item.barcode && save({ barcode })}
+            />
+            <button type="button" className="scan-button" onClick={() => setScanning(true)} aria-label={`Scan the barcode for ${item.name}`} title="Scan">
+              <Icon name="scan" size={22} />
+            </button>
+          </span>
         </label>
+        {scanning && (
+          <Suspense fallback={null}>
+            <Scanner
+              title={`Scan ${item.name}`}
+              onClose={() => setScanning(false)}
+              onCode={(code) => {
+                setScanning(false);
+                setBarcode(code);
+                void save({ barcode: code });
+              }}
+            />
+          </Suspense>
+        )}
       </div>
       <div className="detail-foot">
         <span className="links">

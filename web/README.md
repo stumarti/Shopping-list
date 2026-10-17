@@ -10,6 +10,7 @@ A shared shopping list in one Docker container: a React page served by a FastAPI
 - **Your typical shop** (beside the next shop): products and spend per shop in each aisle, averaged over your trips in the last year.
 - **Light or dark**: the switch at the top right goes Auto (follows the device), Light, Dark.
 - **On your phone in the shop**: the pages move to a bar along the bottom, and the aisle chips above the list stay at the top as you scroll (each shows how much is left in that aisle). Tap the circle beside an item when it's in the trolley: it drops to **In the trolley** at the bottom, and a bar shows how far through you are. Ticks are kept on that phone for this shop's date, and start fresh for the next shop.
+- **Scan barcodes** with your phone's camera: the scan button beside **Add something else** on Next shop ticks an item into the trolley if it's on this shop, or offers to add it (looked up in your items, then Open Food Facts, and remembered with its barcode). The scan button by an item's barcode on Common items sets it. Live scanning needs the page on **https** (phones only allow the camera there); on plain http, **Take a photo** of the barcode works just as well. To get https on Unraid, put it behind a reverse proxy (Nginx Proxy Manager, SWAG) or use Tailscale's `tailscale serve`. Barcodes are read by the browser's own reader where there is one, otherwise by [ZXing](https://github.com/zxing-js/browser), bundled and only loaded when you scan.
 - **Icons** are [Material Symbols](https://fonts.google.com/icons) (rounded), bundled in the page so it works without the internet.
 - **No starter items**: your common items come from what you upload, import or add.
 - **Common items**, aisle by aisle. Tap one to see the weeks you bought it (a square per week, four to a column so habits line up, shaded by month, filled when you bought it, hollow when you didn't shop at all that week; it opens on the latest weeks, scroll back for older ones), its price over time, what you've spent on it, when it's expected next and every purchase; and to rename it, move it, set its barcode, calories, macros and food group, or delete it.
@@ -188,6 +189,7 @@ web/
     PriceChart.tsx     an item's price over time
     Theme.tsx          the light / dark switch
     Icon.tsx           Material Symbols icons, bundled from @material-symbols/svg-400
+    Scanner.tsx        the barcode scanner: live camera, a photo, or the number typed in
     History.tsx        Past shopping: uploads, what you buy, how often, prices
     Manage.tsx         the Common items tab: items (most bought first or by aisle), kinds, sets, each item's history
     Order.tsx          the Most bought / By aisle switch
