@@ -108,14 +108,19 @@ def weekly(rows: list[dict], today: datetime.date, weeks: int = 52) -> list[dict
     for r in rows:
         d = datetime.date.fromisoformat(r["bought_on"])
         week = d - datetime.timedelta(days=d.weekday())
-        c = counts.setdefault(week, {"qty": 0, "trips": set()})
+        c = counts.setdefault(week, {"qty": 0, "trips": set(), "names": set()})
         c["qty"] += r["qty"]
         c["trips"].add((r["store"], r["order_ref"]))
+        if r.get("kind_name"):
+            c["names"].add(r["kind_name"])
     out = []
     week = start
     while week <= this_week:
         c = counts.get(week)
-        out.append({"week": week.isoformat(), "qty": c["qty"] if c else 0, "trips": len(c["trips"]) if c else 0})
+        entry = {"week": week.isoformat(), "qty": c["qty"] if c else 0, "trips": len(c["trips"]) if c else 0}
+        if c and c["names"]:
+            entry["kinds"] = sorted(c["names"])  # which kinds were bought that week
+        out.append(entry)
         week += datetime.timedelta(weeks=1)
     return out
 

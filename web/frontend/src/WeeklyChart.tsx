@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-type Week = { week: string; qty: number; trips: number };
+type Week = { week: string; qty: number; trips: number; kinds?: string[] };
 type Cell = Week & { future: boolean };
 
 const ROWS = 4; // weeks per column: a steady 4, so a weekly or fortnightly habit lines up across the grid
@@ -117,6 +117,10 @@ export default function WeeklyChart({ weeks, expected }: { weeks: Week[]; expect
 
 function describe(c: Cell, isExpected: boolean): string {
   const when = `Week of ${fmt(c.week, { day: "numeric", month: "short", year: "numeric" })}`;
-  const what = c.future ? "still to come" : c.qty === 0 ? "none bought" : `${c.qty} bought${c.trips > 1 ? ` on ${c.trips} trips` : ""}`;
+  const what = c.future
+    ? "still to come"
+    : c.qty === 0
+      ? "none bought"
+      : `${c.qty} bought${c.trips > 1 ? ` on ${c.trips} trips` : ""}${c.kinds?.length ? ` (${c.kinds.join(", ")})` : ""}`;
   return `${when}: ${what}${isExpected ? " (expected next)" : ""}`;
 }

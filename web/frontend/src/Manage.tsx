@@ -187,18 +187,47 @@ function ItemDetail({
           <p className="next">
             <NextPurchase expected={s!.next_expected} />
           </p>
+          {history.kind && (
+            <p className="kind-note">
+              {history.kind.id === item.id
+                ? `Counting all ${history.kind.kinds} kinds of ${item.name} together.`
+                : `Counting all kinds of ${history.kind.name} together, since any of them will do.`}
+            </p>
+          )}
           <p className="muted stats">
-            Bought {s!.trips} {s!.trips === 1 ? "time" : "times"}
+            {history.kind && history.kind.id !== item.id ? `${history.kind.name} bought` : "Bought"} {s!.trips}{" "}
+            {s!.trips === 1 ? "time" : "times"}
             {s!.every_days !== null && `, about every ${s!.every_days === 7 ? "week" : `${s!.every_days} days`}`}, last {fmt(s!.last_bought)}
-            {s!.usual_qty > 1 && `. Usually ${Math.round(s!.usual_qty)} at a time`}
-            {s!.price && (
+            {s!.usual_qty > 1 && `. Usually ${Math.round(s!.usual_qty)} at a time`}.
+            {history.product && (
               <>
-                . {euro(s!.price.now)} each
-                {s!.price.low !== s!.price.high && ` (between ${euro(s!.price.low)} and ${euro(s!.price.high)})`}
+                {" "}
+                This one: {history.product.trips} {history.product.trips === 1 ? "time" : "times"}
+                {history.product.last_bought && `, last ${fmt(history.product.last_bought)}`}.
               </>
             )}
-            .
+            {s!.price && (
+              <>
+                {" "}
+                {euro(s!.price.now)} each
+                {s!.price.low !== s!.price.high && ` (between ${euro(s!.price.low)} and ${euro(s!.price.high)})`}.
+              </>
+            )}
           </p>
+          {history.by_kind.length > 0 && (
+            <ul className="by-kind">
+              {history.by_kind.map((k) => (
+                <li key={k.id}>
+                  <span>{k.name}</span>
+                  <span className="muted">
+                    {k.trips}× · last {fmt(k.last_bought)}
+                    {k.price && ` · ${euro(k.price.now)}`}
+                    {k.price && k.price.low !== k.price.high && ` (${euro(k.price.low)}–${euro(k.price.high)})`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
           <h4>Weeks you bought it</h4>
           <WeeklyChart weeks={history.weekly} expected={s!.next_expected} />
           <button className="link" onClick={() => setShowTable(!showTable)} aria-expanded={showTable}>
