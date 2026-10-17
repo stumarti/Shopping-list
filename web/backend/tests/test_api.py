@@ -464,3 +464,15 @@ def test_clubcard_keeps_everything_in_the_file(tmp_path):
     again = c.post("/api/history/tesco/clubcard", content=raw).json()
     assert again["saved_as"] != r["saved_as"] and (tmp_path / "imports" / again["saved_as"]).read_bytes() == raw
     assert db.execute("SELECT count(*) FROM clubcard_items").fetchone()[0] == 10
+
+
+def test_history_suggestions(tmp_path):
+    import datetime as dt
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none"),
+                              today=lambda: dt.date(2026, 10, 19)))
+    upload(c, EXPORT)  # milk on 28 Sep, 5 Oct, 12 Oct: weekly, last a week ago
+    s = c.get("/api/history").json()["suggestions"]
+    assert [i["name"] for i in s["will"]] == ["Tesco Whole Milk 2L"]
+    assert s["will"][0]["reason"] == "About every week, last 7 days ago" and s["will"][0]["qty"] == 1
+    assert [i["name"] for i in s["extras"]] == ["Pampers Baby Dry Size 4 Nappies Jumbo+ 84 Pack"]
+    assert s["might"] == []

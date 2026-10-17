@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from . import clubcard
 from .catalog import CATEGORIES, guess_aisle
 from .db import Database, category_order
-from .stats import item_stats
+from .stats import group_suggestions, item_stats
 from .lookup import STORES, Fetch, fill_link, http_fetch, is_barcode, link_templates, lookup_barcode, product_url
 
 USERSCRIPT_NAME = "shopping-list.user.js"
@@ -111,7 +111,12 @@ def aisle(category: str | None) -> str:
     return category if category in CATEGORIES else "Other"
 
 
-def create_app(db_path: str | None = None, static_dir: str | None = None, fetch: Fetch = http_fetch) -> FastAPI:
+def create_app(
+    db_path: str | None = None,
+    static_dir: str | None = None,
+    fetch: Fetch = http_fetch,
+    today=datetime.date.today,
+) -> FastAPI:
     db = Database(db_path or os.environ.get("DB_PATH", "shopping.db"))
 
     def imports_dir() -> Path:
@@ -504,7 +509,7 @@ def create_app(db_path: str | None = None, static_dir: str | None = None, fetch:
                 **stats,
             })
         usual.sort(key=lambda u: (-u["orders"], _neg_date(u["last_bought"]), u["name"]))
-        return {"orders": orders, "usual": usual[:40]}
+        return {"orders": orders, "usual": usual[:40], "suggestions": group_suggestions(usual, today())}
 
     @app.get("/api/history/items/{catalog_id}")
     def item_history(catalog_id: int):

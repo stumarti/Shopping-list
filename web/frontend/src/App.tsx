@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { api, isBarcode, itemLinks, type CatalogItem, type Links, type ListItem, type Product } from "./api";
 import Manage from "./Manage";
 import Shop from "./Shop";
+import Suggestions from "./Suggestions";
 
 const POLL_MS = 10_000;
 
@@ -218,6 +219,8 @@ export default function App() {
               </div>
             ))}
           </section>
+
+          <Suggestions onList={onList} listSize={list.length} run={run} />
 
           <section aria-labelledby="add-heading" className="add">
             <h2 id="add-heading">Add items</h2>
