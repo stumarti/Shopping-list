@@ -20,7 +20,7 @@ A shared shopping list in one Docker container: a React page served by a FastAPI
 - **Barcodes**: type or paste a barcode (8 to 14 digits) and tap **Look up**. It's found in [Open Food Facts](https://world.openfoodfacts.org) (then Open Beauty, Products and Pet Food Facts), and remembered with the item.
 - **Check the shops**: every item links to its search results on [Tesco](https://www.tesco.ie/shop/en-IE/search?query=milk) and [Dunnes](https://www.dunnesstoresgrocery.com/results?q=milk), and to its barcode page on Open Food Facts.
 - **Common items** tab: build your own list of usual items. Paste many at once (one per line), rename them, move them between aisles, add barcodes, or delete the ones you never buy.
-- **Shop online** tab: your next shop on the left; tap an item to look it up on the store's site, **Save link** to paste its product address so it's exact next time, and tick **Never swap** on anything you want exactly as it is. On the right, a prompt to copy into **Claude in Chrome** on your signed-in store tab, which fills your basket and stops there (it's told never to check out, pay or touch your slot). Tick **Look for cheaper options** to have it compare like-for-like products by unit price (€/kg, €/L): **Suggest only** adds your usual items and lists what's cheaper, **Swap automatically** adds the cheaper one and tells you what it swapped, and either way it only counts savings above the % and cents you set. Never swap items are left alone, even when out of stock. The browser helper (below) still works too.
+- **Shop online** tab: your next shop on the left; tap an item to look it up on the store's site, **Save link** to paste its product address so it's exact next time, and tick **Never swap** on anything you want exactly as it is. On the right, a prompt to copy into **Claude in Chrome** on your signed-in store tab, which fills your basket and stops there (it's told never to check out, pay or touch your slot). Tick **Look for cheaper options** to have it compare like-for-like products by unit price (€/kg, €/L): **Suggest only** adds your usual items and lists what's cheaper, **Swap automatically** adds the cheaper one and tells you what it swapped, and either way it only counts savings above the % and cents you set. Never swap items are left alone, even when out of stock. **Before you order** lists anything that might be missing: pick-one sets not picked, maybes not decided, regulars (on at least half of your last 12 shops) that aren't on this shop, and things due before the shop after this one. Add each, or say **Not this time**. **Check the basket**: the prompt asks Claude to end with a results block; paste its whole reply back and you get what's missing, what was swapped and what it didn't mention, with a link to find each one, before you check out. Products it added become the saved product for items that had none, and **Keep from now on** makes a swap the product to buy. Each item on the list shows **In basket**, **Swapped**, **Missing** or **Not mentioned**. The browser helper (below) still works too.
 - Anyone on your network who opens the page sees the same list. It refreshes every 10 seconds.
 
 ## Run it with Docker Compose
@@ -177,9 +177,11 @@ web/
     clubcard.py        reads Tesco's Clubcard data export
     finder.py          finds barcodes for items by name in Open Food Facts
     stats.py           how often each item is bought and what it costs
+    results.py         reads the results block in Claude in Chrome's reply
   frontend/src/
     App.tsx            the page and the My list tab
     ShopOnline.tsx     the Shop online tab: your list and the Claude in Chrome prompt, with cheaper options
+    BasketCheck.tsx    Before you order, and checking Claude's results against the list
     Shop.tsx           the older basket-helper page (not shown for now)
     NextShop.tsx       the Next shop tab: the list, maybes, aisles, calories, macros, food pyramid, typical shop
     Spending.tsx       spending and price changes, on Common items
@@ -219,6 +221,10 @@ web/
 | POST | `/api/history/{store}/import` | Record a past order `{order_ref, date, items: [{name, qty, url}]}`; saves each product |
 | POST | `/api/history/tesco/clubcard` | Upload Tesco's Clubcard data file (raw `.json` or `.zip` body) |
 | GET | `/api/next-shop` | The next shop's likely date and reason, what it needs (with badges), the maybes, and what you took off |
+| GET | `/api/next-shop/forgotten` | Regulars and things due before the following shop that aren't on the next shop |
+| POST | `/api/basket/{store}/check` | Read Claude in Chrome's reply `{text}`: what's in the basket, swapped, missing and not mentioned |
+| GET / DELETE | `/api/basket/{store}/check` | The last basket check / start afresh for a new order |
+| POST | `/api/basket/check-items/{id}/keep` | Keep a swap as the product to buy from now on |
 | POST / DELETE | `/api/next-shop/skip/{catalog_id}` | Take an item off the next shop / put it back |
 | POST | `/api/next-shop/choose/{set_id}` | Pick one option of a pick-one set for the next shop `{catalog_id}` (`null` to unpick) |
 | GET | `/api/typical-shop` | A typical shop over the last year: products, spend and calories per shop, aisle by aisle, and calories a week over weeks you shopped |

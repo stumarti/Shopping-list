@@ -2510,3 +2510,183 @@ button.primary,
   align-items: center;
   gap: 4px;
 }
+
+/* Before you order: what might be missing */
+.before-order {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--unsure-ink);
+  background: var(--unsure-bg);
+}
+
+.before-order.clear {
+  border-color: var(--line);
+  background: var(--ground);
+}
+
+.before-order .part-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 2px;
+  color: var(--ink);
+}
+
+.all-clear {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+}
+
+.all-clear .icon {
+  color: var(--accent);
+}
+
+.checks {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.checks li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+
+.check-main {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+
+.check-name {
+  font-weight: 600;
+}
+
+.check-why {
+  font-size: 0.8rem;
+}
+
+.check-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+
+.check-actions .add-one {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Checking the basket: Claude's reply, read back */
+.check-basket textarea.paste-results {
+  margin-bottom: 8px;
+}
+
+.review-sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+
+.review-sum .icon {
+  color: var(--accent);
+}
+
+.review-sum.todo {
+  background: var(--unsure-bg);
+}
+
+.review-sum.todo .icon {
+  color: var(--unsure-ink);
+}
+
+.review-sum .muted {
+  flex-basis: 100%;
+  font-size: 0.85rem;
+}
+
+.review-part {
+  margin-top: 12px;
+  font-size: 0.9rem;
+}
+
+.review-part h4 {
+  margin: 0;
+}
+
+.review-part summary {
+  cursor: pointer;
+}
+
+.review-part ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.review-part li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+}
+
+.review-part li a {
+  white-space: nowrap;
+}
+
+.status-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 0 7px 0 4px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+
+.review-part .status-mark {
+  margin: 0 4px 0 0;
+}
+
+.status-mark.added {
+  background: var(--weekly-bg);
+  color: var(--weekly-ink);
+}
+
+.status-mark.swapped {
+  background: var(--scheduled-bg);
+  color: var(--scheduled-ink);
+}
+
+.status-mark.missing,
+.status-mark.unreported {
+  background: var(--unsure-bg);
+  color: var(--unsure-ink);
+}

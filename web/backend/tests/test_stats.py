@@ -159,3 +159,27 @@ def test_food_group_guesses():
     assert guess_food_group("Loose Bananas", "Fresh produce") == "veg"
     assert guess_food_group("Fairy Original Washing Up Liquid", "Household") == ""
     assert guess_food_group("Something new", "Fruit & veg") == "veg"  # by aisle when no word says
+
+
+def test_reading_claudes_results():
+    import pytest
+    from app.results import key, parse
+    reply = """All done! Here's what I did.
+
+```json
+{"results": [
+  {"item": "Tesco Whole Milk 2L", "status": "added", "product": "Tesco Whole Milk 2L", "url": "https://www.tesco.ie/x", "qty": 2},
+  {"item": "Loose Bananas", "status": "Out of stock", "note": "none left"},
+  {"item": "Bread", "status": "substituted", "product": "Pat the Baker", "qty": "1"}
+], "total": "€9.20"}
+```
+Let me know if you'd like anything else."""
+    r = parse(reply)
+    assert [(i["item"], i["status"]) for i in r["items"]] == [
+        ("Tesco Whole Milk 2L", "added"), ("Loose Bananas", "missing"), ("Bread", "swapped")]
+    assert r["items"][0]["qty"] == 2 and r["items"][2]["qty"] == 1 and r["total"] == "€9.20"
+    # Without a fence, and with curly quotes from a phone
+    assert parse('Results: {“results”: [{“item”: “Eggs”, “status”: “added”}]}')["items"][0]["item"] == "Eggs"
+    with pytest.raises(ValueError):
+        parse("I added everything!")
+    assert key("2 × Tesco Whole Milk 2L [exact: never swap]") == "tesco whole milk 2l"

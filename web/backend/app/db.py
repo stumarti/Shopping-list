@@ -164,6 +164,33 @@ MIGRATIONS = [
     """
     ALTER TABLE catalog ADD COLUMN exact INTEGER NOT NULL DEFAULT 0;
     """,
+    # 11: what Claude in Chrome said it put in the basket, pasted back to check nothing was missed. raw keeps the
+    #     reply as pasted; unreported lists the shop's items it didn't mention. link_saved marks a product link
+    #     saved from it; kept marks a swap kept as the product to buy from now on.
+    """
+    CREATE TABLE basket_checks (
+        id INTEGER PRIMARY KEY,
+        store TEXT NOT NULL,
+        shop_date TEXT,
+        raw TEXT NOT NULL,
+        total TEXT NOT NULL DEFAULT '',
+        unreported TEXT NOT NULL DEFAULT '[]',
+        checked_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE basket_check_items (
+        id INTEGER PRIMARY KEY,
+        check_id INTEGER NOT NULL REFERENCES basket_checks (id) ON DELETE CASCADE,
+        item TEXT NOT NULL,
+        status TEXT NOT NULL,
+        product TEXT NOT NULL DEFAULT '',
+        url TEXT NOT NULL DEFAULT '',
+        qty REAL,
+        note TEXT NOT NULL DEFAULT '',
+        catalog_id INTEGER REFERENCES catalog (id) ON DELETE SET NULL,
+        link_saved INTEGER NOT NULL DEFAULT 0,
+        kept INTEGER NOT NULL DEFAULT 0
+    );
+    """,
 ]
 
 FALLBACK_AISLE = "Other"

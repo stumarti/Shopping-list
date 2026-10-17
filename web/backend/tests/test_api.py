@@ -854,3 +854,57 @@ def test_item_history_works_out_timing_for_the_kind(tmp_path):
     # An item with no kinds is unchanged
     m = c.get(f"/api/history/items/{ids['Tesco Whole Milk 2L']}").json()
     assert m["kind"] is None and m["by_kind"] == [] and m["product"] is None and m["summary"]["price"]["now"] == 2.19
+
+
+def test_basket_check_and_forgotten(tmp_path):
+    import datetime as dt
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none"),
+                              today=lambda: dt.date(2026, 10, 15)))
+    days = ["09-05", "09-12", "09-19", "09-26", "10-03", "10-10"]  # Saturdays
+    trips = [trip(f"2026-{d} 11:00:00", [("Tesco Whole Milk 2L", 1, 2.19), ("Brennans Family Pan 800g", 1, 2.5)] +
+                  ([("Kerrygold Butter 227g", 1, 3.9)] if n % 2 else []))
+             for n, d in enumerate(days)]
+    upload(c, {"purchases": trips})
+    c.post("/api/list", json={"name": "Birthday candles", "category": "Other"})
+
+    # Butter every two weeks, last on the 10th: not due this shop, but on half your shops, so worth a check
+    f = c.get("/api/next-shop/forgotten").json()
+    assert [(r["name"], r["reason"]) for r in f["regulars"]] == [("Kerrygold Butter 227g", "On 3 of your last 6 shops")]
+    # With more shops behind it, it's no longer a regular, but it's due before the shop after this one
+    older = [trip(f"2026-08-{d:02d} 11:00:00", [("Tesco Whole Milk 2L", 1, 2.19)]) for d in (1, 8, 15, 22, 29)]
+    upload(c, {"purchases": older})
+    f = c.get("/api/next-shop/forgotten").json()
+    assert f["regulars"] == [] and [r["name"] for r in f["due_soon"]] == ["Kerrygold Butter 227g"]
+    assert "Sat 24 Oct" in f["due_soon"][0]["reason"]
+
+    # Claude's results pasted back
+    reply = """Done.
+```json
+{"results": [
+  {"item": "Tesco Whole Milk 2L", "status": "added", "product": "Tesco Whole Milk 2L", "url": "https://www.tesco.ie/shop/en-IE/products/123456?ref=x", "qty": 1},
+  {"item": "1 x Brennans Family Pan 800g", "status": "swapped", "product": "Pat the Baker Pan", "url": "https://www.tesco.ie/shop/en-IE/products/999999", "note": "cheaper"},
+  {"item": "Mystery thing", "status": "missing", "note": "not on my list?"}
+], "total": "€4.69"}
+```"""
+    r = c.post("/api/basket/tesco/check", json={"text": reply})
+    assert r.status_code == 200
+    check = r.json()
+    assert check["counts"] == {"added": 1, "swapped": 1, "missing": 1} and check["total"] == "€4.69"
+    assert check["unreported"] == ["Birthday candles"]  # on the shop, but Claude didn't say
+    milk, bread = check["items"][0], check["items"][1]
+    assert bread["item"] == "Brennans Family Pan 800g" and not bread["link_saved"]  # a swap isn't saved by itself
+    assert milk["link_saved"]
+    products = {i["name"]: i["products"] for i in c.get("/api/catalog").json()}
+    assert products["Tesco Whole Milk 2L"]["tesco"]["url"] == "https://www.tesco.ie/shop/en-IE/products/123456"
+    assert "tesco" not in products["Brennans Family Pan 800g"]
+    # Keep the swap: it becomes the bread to buy
+    kept = c.post(f"/api/basket/check-items/{bread['id']}/keep").json()
+    assert kept["items"][1]["kept"]
+    products = {i["name"]: i["products"] for i in c.get("/api/catalog").json()}
+    assert products["Brennans Family Pan 800g"]["tesco"]["url"] == "https://www.tesco.ie/shop/en-IE/products/999999"
+    assert c.get("/api/basket/tesco/check").json()["id"] == check["id"]
+    # Nonsense in, a plain reason out; a new order starts afresh
+    bad = c.post("/api/basket/tesco/check", json={"text": "I added it all"})
+    assert bad.status_code == 422 and "Couldn't find" in bad.json()["detail"]
+    assert c.delete("/api/basket/tesco/check").status_code == 204
+    assert c.get("/api/basket/tesco/check").json() is None
