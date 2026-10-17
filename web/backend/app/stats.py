@@ -118,3 +118,65 @@ def weekly(rows: list[dict], today: datetime.date, weeks: int = 52) -> list[dict
         out.append({"week": week.isoformat(), "qty": c["qty"] if c else 0, "trips": len(c["trips"]) if c else 0})
         week += datetime.timedelta(weeks=1)
     return out
+
+
+# The next shop: when it's likely to be, and what it needs.
+
+def shop_plan_date(trip_days: list[str], today: datetime.date) -> dict | None:
+    """When the next shop is likely: the last shop plus the usual gap between shops, moved to the day of the
+    week you usually shop on, and never in the past. trip_days: the dates you shopped (any order)."""
+    days = sorted({datetime.date.fromisoformat(d) for d in trip_days})
+    if not days:
+        return None
+    recent = [d for d in days if d >= days[-1] - datetime.timedelta(days=120)] or days
+    gaps = [(b - a).days for a, b in zip(recent, recent[1:]) if (b - a).days > 0]
+    gap = round(median(gaps)) if gaps else 7
+    last_dozen = recent[-12:]
+    weekday = max(range(7), key=lambda w: (sum(d.weekday() == w for d in last_dozen), -w))
+    usual_day = sum(d.weekday() == weekday for d in last_dozen) >= max(2, len(last_dozen) // 3)
+    target = max(days[-1] + datetime.timedelta(days=gap), today)
+    if usual_day:
+        # The usual shopping day nearest the target, but not before today.
+        options = [target + datetime.timedelta(days=k) for k in range(-3, 4)]
+        options = [d for d in options if d >= today and d.weekday() == weekday]
+        if options:
+            target = min(options, key=lambda d: abs((d - target).days))
+    names = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"]
+    every = "every week" if gap == 7 else f"every {gap} days"
+    reason = f"You usually shop on {names[weekday]}, about {every}" if usual_day else f"You usually shop about {every}"
+    return {"date": target.isoformat(), "every_days": gap, "last_shop": days[-1].isoformat(), "reason": reason}
+
+
+def short_date(d: datetime.date, weekday: bool = False) -> str:
+    text = f"{d.day} {d.strftime('%b')}"
+    return f"{d.strftime('%a')} {text}" if weekday else text
+
+
+def weeks_text(days: int) -> str:
+    if days % 7 == 0 or abs(days - round(days / 7) * 7) <= 1:
+        w = round(days / 7)
+        return "Weekly" if w == 1 else f"Every {w} weeks"
+    return f"Every {days} days"
+
+
+def for_next_shop(item: dict, shop: datetime.date, shop_every: int, today: datetime.date) -> dict | None:
+    """Whether an item belongs on the next shop, and its badge: {"badge": "weekly" | "scheduled" | "unsure",
+    "label", "detail"}. It's in when it's expected before about halfway to the shop after this one, so it
+    doesn't run out in between."""
+    if not item.get("last_bought") or item["trips"] < 3 or not item.get("next_expected"):
+        return None
+    gap = item.get("every_days")
+    since = (today - datetime.date.fromisoformat(item["last_bought"])).days
+    if gap and since > 3 * gap + 14:
+        return None  # used to, but seems to have stopped
+    expected = datetime.date.fromisoformat(item["next_expected"])
+    if expected > shop + datetime.timedelta(days=shop_every / 2):
+        return None
+    when = "overdue" if expected < today else f"due {short_date(expected, weekday=True)}"
+    steady = (item.get("unevenness") or 0) <= STEADY
+    if gap and gap <= REGULAR_MAX_GAP and steady:
+        label = weeks_text(gap)
+        last = short_date(datetime.date.fromisoformat(item["last_bought"]))
+        return {"badge": "weekly" if label == "Weekly" else "scheduled", "label": label, "detail": f"Last bought {last}, {when}"}
+    usual = f"usually every {gap} days" if gap and gap <= REGULAR_MAX_GAP else "now and then"
+    return {"badge": "unsure", "label": "Not sure", "detail": f"Bought {usual}, {when}"}

@@ -626,3 +626,61 @@ def test_clubcard_prices_default_to_per_item_when_totals_dont_add_up():
     assert prices_are_line_totals(t) is False
     assert prices_are_line_totals(trip("2026-01-01 10:00", [("Milk", 2, 4.40), ("Bread", 1, 2.50)], gross=6.90)) is True
     assert prices_are_line_totals(trip("2026-01-01 10:00", [("Milk", 2, 2.20), ("Bread", 1, 2.50)], gross=6.90)) is False
+
+
+def test_clear_all_and_rebuild_from_history(client):
+    upload(client, EXPORT)  # milk and nappies on 2+ trips; bread once
+    client.post("/api/history/tesco/import", json={"order_ref": "o1", "date": "2026-10-14", "items": [
+        {"name": "Avonmore Fresh Milk 2 Litre", "qty": 1, "url": TESCO + "111", "price": 2.19}]})
+    client.post("/api/list", json={"name": "Milk"})
+    before = len(client.get("/api/catalog").json())
+    assert before > 3
+
+    assert client.post("/api/catalog/clear").json() == {"removed": before}
+    assert client.get("/api/catalog").json() == []
+    assert [i["name"] for i in client.get("/api/list").json()] == ["Milk"]  # the list stays
+    assert len(client.get("/api/history").json()["orders"]) == 4  # and the history
+
+    r = client.post("/api/catalog/rebuild").json()
+    names = {i["name"]: i for i in client.get("/api/catalog").json()}
+    assert set(names) == {"Tesco Whole Milk 2L", "Pampers Baby Dry Size 4 Nappies Jumbo+ 84 Pack", "Avonmore Fresh Milk 2 Litre"}
+    assert r == {"added": 3, "purchases": 6}
+    assert names["Avonmore Fresh Milk 2 Litre"]["products"]["tesco"]["url"] == TESCO + "111"
+    assert names["Tesco Whole Milk 2L"]["category"] == "Dairy & eggs"
+    assert client.get("/api/history").json()["usual"][0]["name"] == "Tesco Whole Milk 2L"
+    # Rebuilding again finds nothing new
+    assert client.post("/api/catalog/rebuild").json() == {"added": 0, "purchases": 0}
+
+
+def test_next_shop(tmp_path):
+    import datetime as dt
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none"),
+                              today=lambda: dt.date(2026, 10, 15)))
+    weekly = [trip(f"2026-{d} 11:00:00", [("Tesco Whole Milk 2L", 1, 2.19), ("Brennans Family Pan 800g", 1, 2.5)] +
+                   ([("Loose Bananas", 1, 0.65)] if n % 2 == 0 else []))
+              for n, d in enumerate(["09-05", "09-12", "09-19", "09-26", "10-03", "10-10"])]  # Saturdays
+    upload(c, {"purchases": weekly})
+    c.post("/api/list", json={"name": "Birthday candles", "category": "Other"})
+
+    plan = c.get("/api/next-shop").json()
+    assert plan["shop"]["date"] == "2026-10-17" and plan["shop"]["reason"] == "You usually shop on Saturdays, about every week"
+    got = {i["name"]: (i["badge"], i["label"]) for i in plan["items"]}
+    assert got == {
+        "Brennans Family Pan 800g": ("weekly", "Weekly"),
+        "Tesco Whole Milk 2L": ("weekly", "Weekly"),
+        "Loose Bananas": ("scheduled", "Every 2 weeks"),  # last bought 3 Oct, so due on the 17th
+        "Birthday candles": ("added", "Added"),
+    }
+    assert [i["category"] for i in plan["items"]] == ["Fruit & veg", "Bakery", "Dairy & eggs", "Other"]  # in aisle order
+
+    # Take the bread off this shop, then put it back
+    bread = next(i for i in plan["items"] if i["name"].startswith("Brennans"))
+    after = c.post(f"/api/next-shop/skip/{bread['catalog_id']}").json()
+    assert "Brennans Family Pan 800g" not in {i["name"] for i in after["items"]}
+    assert [i["name"] for i in after["skipped"]] == ["Brennans Family Pan 800g"]
+    back = c.delete(f"/api/next-shop/skip/{bread['catalog_id']}").json()
+    assert "Brennans Family Pan 800g" in {i["name"] for i in back["items"]}
+
+    # Nothing bought yet: no date, just what you added
+    empty = TestClient(create_app(db_path=str(tmp_path / "e.db"), static_dir=str(tmp_path / "none"))).get("/api/next-shop").json()
+    assert empty == {"shop": None, "items": [], "skipped": []}

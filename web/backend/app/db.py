@@ -126,6 +126,14 @@ MIGRATIONS = [
     """
     DELETE FROM catalog WHERE custom = 0
     """,
+    # 7: items taken off the next shop (they come back for the shop after)
+    """
+    CREATE TABLE shop_skips (
+        catalog_id INTEGER NOT NULL REFERENCES catalog (id) ON DELETE CASCADE,
+        shop_date TEXT NOT NULL,
+        PRIMARY KEY (catalog_id, shop_date)
+    )
+    """,
 ]
 
 FALLBACK_AISLE = "Other"

@@ -15,7 +15,7 @@ from . import clubcard
 from .catalog import guess_aisle
 from .db import Database, category_order
 from .finder import BarcodeFinder
-from .stats import group_suggestions, item_stats, weekly
+from .stats import for_next_shop, group_suggestions, item_stats, shop_plan_date, weekly
 from .lookup import STORES, Fetch, fill_link, http_fetch, is_barcode, link_templates, lookup_barcode, product_url
 
 USERSCRIPT_NAME = "shopping-list.user.js"
@@ -365,6 +365,51 @@ def create_app(
                 conn.execute(f"UPDATE catalog SET {cols} WHERE id = ?", (*changes.values(), item_id))
         return catalog_item(item_id)
 
+    @app.post("/api/catalog/clear")
+    def clear_catalog():
+        """Remove every common item (and their saved store products and barcodes). The list, the purchase
+        history and uploaded files stay, so "Rebuild from history" can bring items back."""
+        with db.tx() as conn:
+            removed = conn.execute("DELETE FROM catalog").rowcount
+        finder.stop()
+        return {"removed": removed}
+
+    @app.post("/api/catalog/rebuild")
+    def rebuild_catalog():
+        """Make common items again from the purchase history: every product from an online order (with its store
+        link), and anything else bought on at least CLUBCARD_MIN_TRIPS trips (default 2)."""
+        min_trips = int(os.environ.get("CLUBCARD_MIN_TRIPS", "2"))
+        added = relinked = 0
+        with db.tx() as conn:
+            groups = conn.execute(
+                "SELECT lower(name) AS key, max(name) AS name, count(DISTINCT store || order_ref) AS trips, "
+                "max(url != '') AS linked FROM purchases WHERE catalog_id IS NULL GROUP BY lower(name)"
+            ).fetchall()
+            for g in groups:
+                if g["trips"] < min_trips and not g["linked"]:
+                    continue
+                name = tidy_name(g["name"][:80])
+                row = conn.execute("SELECT id FROM catalog WHERE lower(name) = lower(?)", (name,)).fetchone()
+                if row:
+                    catalog_id = row["id"]
+                else:
+                    catalog_id = conn.execute(
+                        "INSERT INTO catalog (name, category, custom) VALUES (?, ?, 1)", (name, guess(g["name"]))
+                    ).lastrowid
+                    added += 1
+                relinked += conn.execute(
+                    "UPDATE purchases SET catalog_id = ? WHERE catalog_id IS NULL AND lower(name) = ?", (catalog_id, g["key"])
+                ).rowcount
+                for link in conn.execute(
+                    "SELECT store, url, name FROM purchases WHERE catalog_id = ? AND url != '' ORDER BY bought_at DESC",
+                    (catalog_id,),
+                ).fetchall():
+                    conn.execute(
+                        "INSERT OR IGNORE INTO store_products (catalog_id, store, url, title) VALUES (?, ?, ?, ?)",
+                        (catalog_id, link["store"], link["url"], link["name"][:200]),
+                    )
+        return {"added": added, "purchases": relinked}
+
     @app.delete("/api/catalog/{item_id}", status_code=204)
     def remove_from_catalog(item_id: int):
         with db.tx() as conn:
@@ -595,13 +640,8 @@ def create_app(
             "to": dates[-1],
         }
 
-    @app.get("/api/history")
-    def history():
-        """Imported orders, newest first, and the items bought most often."""
-        orders = db.rows(
-            "SELECT store, order_ref, bought_on, count(*) AS products, sum(qty) AS units, max(source) AS source "
-            "FROM purchases GROUP BY store, order_ref ORDER BY bought_on DESC, order_ref"
-        )
+    def usual_items() -> list[dict]:
+        """Every common item that has purchases, with its summary (how often, when next, prices)."""
         rows = db.rows(
             "SELECT p.catalog_id, c.name, c.category, p.store, p.order_ref, p.bought_on, p.qty, p.unit_price "
             "FROM purchases p JOIN catalog c ON c.id = p.catalog_id ORDER BY p.bought_at, p.id"
@@ -609,16 +649,72 @@ def create_app(
         by_item: dict[int, list[dict]] = {}
         for r in rows:
             by_item.setdefault(r["catalog_id"], []).append(r)
-        usual = []
+        out = []
         for catalog_id, item_rows in by_item.items():
             stats = item_stats(item_rows)
-            usual.append({
+            out.append({
                 "catalog_id": catalog_id,
                 "name": item_rows[0]["name"],
                 "category": item_rows[0]["category"],
                 "orders": stats["trips"],
                 **stats,
             })
+        return out
+
+    # The next shop: when, and what it needs
+
+    @app.get("/api/next-shop")
+    def next_shop():
+        plan = shop_plan_date([r["d"] for r in db.rows("SELECT DISTINCT bought_on AS d FROM purchases")], today())
+        items = []
+        skipped = []
+        added = db.rows("SELECT id, name, category, qty FROM list_items WHERE done = 0")
+        added_names = {a["name"].lower() for a in added}
+        if plan:
+            shop = datetime.date.fromisoformat(plan["date"])
+            skips = {r["catalog_id"] for r in db.rows("SELECT catalog_id FROM shop_skips WHERE shop_date = ?", (plan["date"],))}
+            for u in usual_items():
+                pick = for_next_shop(u, shop, plan["every_days"], today())
+                if not pick or u["name"].lower() in added_names:
+                    continue
+                entry = {
+                    "catalog_id": u["catalog_id"], "list_item_id": None, "name": u["name"], "category": u["category"],
+                    "qty": max(1, round(u["usual_qty"] or 1)), **pick,
+                }
+                (skipped if u["catalog_id"] in skips else items).append(entry)
+        for a in added:
+            items.append({
+                "catalog_id": None, "list_item_id": a["id"], "name": a["name"], "category": a["category"], "qty": a["qty"],
+                "badge": "added", "label": "Added", "detail": "You added this",
+            })
+        return {"shop": plan, "items": sort_items(items), "skipped": sort_items(skipped)}
+
+    @app.post("/api/next-shop/skip/{catalog_id}")
+    def skip_for_next_shop(catalog_id: int):
+        """Take an item off the next shop. It's back for the one after."""
+        catalog_item(catalog_id)
+        plan = shop_plan_date([r["d"] for r in db.rows("SELECT DISTINCT bought_on AS d FROM purchases")], today())
+        if not plan:
+            raise HTTPException(409, "There's no next shop planned yet")
+        with db.tx() as conn:
+            conn.execute("INSERT OR IGNORE INTO shop_skips (catalog_id, shop_date) VALUES (?, ?)", (catalog_id, plan["date"]))
+            conn.execute("DELETE FROM shop_skips WHERE shop_date < ?", (today().isoformat(),))
+        return next_shop()
+
+    @app.delete("/api/next-shop/skip/{catalog_id}")
+    def unskip_for_next_shop(catalog_id: int):
+        with db.tx() as conn:
+            conn.execute("DELETE FROM shop_skips WHERE catalog_id = ?", (catalog_id,))
+        return next_shop()
+
+    @app.get("/api/history")
+    def history():
+        """Imported orders, newest first, and the items bought most often."""
+        orders = db.rows(
+            "SELECT store, order_ref, bought_on, count(*) AS products, sum(qty) AS units, max(source) AS source "
+            "FROM purchases GROUP BY store, order_ref ORDER BY bought_on DESC, order_ref"
+        )
+        usual = usual_items()
         usual.sort(key=lambda u: (-u["orders"], _neg_date(u["last_bought"]), u["name"]))
         return {"orders": orders, "usual": usual[:40], "suggestions": group_suggestions(usual, today())}
 

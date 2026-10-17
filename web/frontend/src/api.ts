@@ -68,6 +68,21 @@ export type ClubcardResult = {
   to: string;
   saved_as: string;
 };
+export type ShopItem = {
+  catalog_id: number | null;
+  list_item_id: number | null;
+  name: string;
+  category: string;
+  qty: number;
+  badge: "weekly" | "scheduled" | "unsure" | "added";
+  label: string;
+  detail: string;
+};
+export type NextShop = {
+  shop: { date: string; every_days: number; last_shop: string; reason: string } | null;
+  items: ShopItem[];
+  skipped: ShopItem[];
+};
 export type Product = { barcode: string; name: string; brand: string; quantity: string; category: string; source: string };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -121,6 +136,11 @@ export const api = {
   finder: () => call<FinderStatus>("/barcodes/find"),
   findBarcodes: (retry = false) => call<FinderStatus>("/barcodes/find", json("POST", { retry })),
   stopFinding: () => call<FinderStatus>("/barcodes/find/stop", { method: "POST" }),
+  nextShop: () => call<NextShop>("/next-shop"),
+  skipForShop: (catalogId: number) => call<NextShop>(`/next-shop/skip/${catalogId}`, { method: "POST" }),
+  unskipForShop: (catalogId: number) => call<NextShop>(`/next-shop/skip/${catalogId}`, { method: "DELETE" }),
+  clearCommon: () => call<{ removed: number }>("/catalog/clear", { method: "POST" }),
+  rebuildCommon: () => call<{ added: number; purchases: number }>("/catalog/rebuild", { method: "POST" }),
   addCommon: (text: string, category: string) =>
     call<{ added: string[]; skipped: string[] }>("/catalog/bulk", json("POST", { text, category })),
 };
