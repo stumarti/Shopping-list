@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#1A7F4B" />
     <title>Shopping list</title>
+    <script>
+      // Light or dark as chosen in the header, before the page draws.
+      try {
+        var t = localStorage.getItem("shopping-list.theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

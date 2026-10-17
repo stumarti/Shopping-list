@@ -15,6 +15,13 @@ export type CatalogItem = {
   or_id: number | null;
   /** Calories per pack. */
   kcal: number | null;
+  /** Grams per pack. */
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  /** The food pyramid shelf you set ("" until you do), and the one guessed from its name and aisle. */
+  food_group: string;
+  food_group_guess: string;
   /** Shopping trips it was on (a generic item counts its kinds'). */
   trips: number;
   products: Products;
@@ -41,7 +48,7 @@ export type ListItem = {
   products: Products;
 };
 export type Links = {
-  stores: { id: string; name: string; search: string }[];
+  stores: { id: string; name: string; home: string; search: string }[];
   barcodes: { name: string; product: string; search: string };
 };
 export type PriceSummary = { now: number; now_on: string; first: number; first_on: string; low: number; high: number };
@@ -70,7 +77,10 @@ export type ItemHistory = {
   product: { trips: number; last_bought: string | null } | null;
   /** For a generic item with kinds: each kind's own count and price. */
   by_kind: { id: number; name: string; trips: number; last_bought: string; price: PriceSummary | null }[];
-  weekly: { week: string; qty: number; trips: number; kinds?: string[] }[];
+  /** shopped: whether you did any shopping at all that week. */
+  weekly: { week: string; qty: number; trips: number; kinds?: string[]; shopped?: boolean }[];
+  /** What you've spent on it, in euro. */
+  spend: number;
   purchases: { store: string; bought_on: string; bought_at: string; bought_as: string; qty: number; unit_price: number | null; source: string }[];
 };
 export type ClubcardResult = {
@@ -102,7 +112,26 @@ export type ShopItem = {
   /** A pick-one set's options, most bought first, and the one picked for this shop. */
   options: ShopOption[] | null;
   chosen: number | null;
+  /** Grams per pack, when known. */
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  /** Its food pyramid shelf; "" when it isn't food. */
+  food_group: string;
 };
+export type FoodGroup = { id: string; name: string; advice: string };
+export type PriceMove = { catalog_id: number; name: string; before: number; after: number; change: number };
+export type Spending = {
+  total: number;
+  from: string;
+  to: string;
+  trips: number;
+  weeks: number;
+  a_shop: number;
+  a_week: number;
+  months: { month: string; spend: number; trips: number }[];
+  prices: { change: number; products: number; up: PriceMove[]; down: PriceMove[] } | null;
+} | null;
 export type TypicalAisle = { aisle: string; products: number; units: number; spend: number | null; kcal: number | null; top: string[] };
 export type TypicalShop = {
   trips: number;
@@ -113,15 +142,23 @@ export type TypicalShop = {
   spend: number | null;
   kcal: number | null;
   kcal_known: number;
+  /** Weeks with any shopping, and calories bought a week over those weeks only. */
+  weeks: number;
+  kcal_week: number | null;
   aisles: TypicalAisle[];
 } | null;
 export type NextShop = {
   shop: { date: string; every_days: number; last_shop: string; reason: string } | null;
   items: ShopItem[];
+  /** Not sure you'll need these: they're out of the shop until you add them. */
+  maybe: ShopItem[];
   skipped: ShopItem[];
 };
 /** A change to a common item. group: the generic item it's a kind of ("" for none); or_set: its pick-one set. */
-export type CommonChange = Partial<Pick<CatalogItem, "name" | "category" | "barcode" | "kcal">> & { group?: string; or_set?: string };
+export type CommonChange = Partial<Pick<CatalogItem, "name" | "category" | "barcode" | "kcal" | "protein" | "carbs" | "fat" | "food_group">> & {
+  group?: string;
+  or_set?: string;
+};
 export type Product = { barcode: string; name: string; brand: string; quantity: string; category: string; source: string };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -180,6 +217,8 @@ export const api = {
   chooseForShop: (setId: number, catalogId: number | null) =>
     call<NextShop>(`/next-shop/choose/${setId}`, json("POST", { catalog_id: catalogId })),
   typicalShop: () => call<TypicalShop>("/typical-shop"),
+  spending: () => call<Spending>("/spending"),
+  foodGroups: () => call<FoodGroup[]>("/food-groups"),
   skipForShop: (catalogId: number) => call<NextShop>(`/next-shop/skip/${catalogId}`, { method: "POST" }),
   unskipForShop: (catalogId: number) => call<NextShop>(`/next-shop/skip/${catalogId}`, { method: "DELETE" }),
   clearCommon: () => call<{ removed: number }>("/catalog/clear", { method: "POST" }),

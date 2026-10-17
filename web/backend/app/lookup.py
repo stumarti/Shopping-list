@@ -22,12 +22,14 @@ STORES = {
     "tesco": {
         "name": "Tesco",
         "host": "www.tesco.ie",
+        "home": "https://www.tesco.ie/shop/en-IE/",
         "search": "https://www.tesco.ie/shop/en-IE/search?query={q}",
         "product": re.compile(r"^/(?:shop|groceries)/en-IE/products/(\d+)/?$"),
     },
     "dunnes": {
         "name": "Dunnes",
         "host": "www.dunnesstoresgrocery.com",
+        "home": "https://www.dunnesstoresgrocery.com/",
         "search": "https://www.dunnesstoresgrocery.com/results?q={q}",
         "product": re.compile(r"^/product/[a-z0-9-]*?(\d{6,})/?$"),
     },
@@ -140,7 +142,8 @@ def fill_link(template: str, value: str) -> str:
 
 def link_templates() -> dict:
     stores = [
-        {"id": sid, "name": s["name"], "search": os.environ.get(f"{sid.upper()}_SEARCH_URL") or s["search"]}
+        {"id": sid, "name": s["name"], "home": s["home"],
+         "search": os.environ.get(f"{sid.upper()}_SEARCH_URL") or s["search"]}
         for sid, s in STORES.items()
     ]
     return {"stores": stores, "barcodes": BARCODE_DIRECTORY}

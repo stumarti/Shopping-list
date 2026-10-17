@@ -96,9 +96,10 @@ def group_suggestions(items: list[dict], today: datetime.date) -> dict[str, list
     return groups
 
 
-def weekly(rows: list[dict], today: datetime.date, weeks: int = 52) -> list[dict]:
-    """How many were bought each week (Monday to Sunday), for the last `weeks` weeks up to this one,
-    starting no earlier than the week of the first purchase."""
+def weekly(rows: list[dict], today: datetime.date, weeks: int = 260, shopped: set[str] | None = None) -> list[dict]:
+    """How many were bought each week (Monday to Sunday), from the week of the first purchase (at most `weeks`
+    weeks back) up to this one. shopped: the Mondays of weeks with any shopping at all; a week without any is
+    marked shopped=False, so "not bought" isn't read into a week you didn't shop."""
     this_week = today - datetime.timedelta(days=today.weekday())
     start = this_week - datetime.timedelta(weeks=weeks - 1)
     if rows:
@@ -120,9 +121,76 @@ def weekly(rows: list[dict], today: datetime.date, weeks: int = 52) -> list[dict
         entry = {"week": week.isoformat(), "qty": c["qty"] if c else 0, "trips": len(c["trips"]) if c else 0}
         if c and c["names"]:
             entry["kinds"] = sorted(c["names"])  # which kinds were bought that week
+        if shopped is not None and week < this_week:  # this week isn't over yet
+            entry["shopped"] = bool(c) or week.isoformat() in shopped
         out.append(entry)
         week += datetime.timedelta(weeks=1)
     return out
+
+
+def monday(iso: str) -> str:
+    d = datetime.date.fromisoformat(iso)
+    return (d - datetime.timedelta(days=d.weekday())).isoformat()
+
+
+def spending(rows: list[dict], today: datetime.date) -> dict | None:
+    """What you've spent, from priced purchases {catalog_id, bought_on, qty, unit_price, trip}: the total, month by
+    month, a shop and a week (over weeks you shopped only), and how prices of the things you buy again and again
+    have moved: each product's average price in its first three months against its last three, weighted by what
+    you spend on it. None when nothing has a price."""
+    priced = [r for r in rows if r["unit_price"] is not None]
+    if not priced:
+        return None
+    total = sum(r["unit_price"] * r["qty"] for r in priced)
+    months: dict[str, float] = {}
+    month_trips: dict[str, set] = {}
+    for r in priced:
+        months[r["bought_on"][:7]] = months.get(r["bought_on"][:7], 0) + r["unit_price"] * r["qty"]
+        month_trips.setdefault(r["bought_on"][:7], set()).add(r["trip"])
+    trips = {r["trip"] for r in priced}
+    weeks = {monday(r["bought_on"]) for r in priced}
+
+    # Price change: products bought at least 90 days apart.
+    by_product: dict[int, list[dict]] = {}
+    for r in priced:
+        if r["catalog_id"]:
+            by_product.setdefault(r["catalog_id"], []).append(r)
+    changes = []
+    for pid, rs in by_product.items():
+        days = sorted(datetime.date.fromisoformat(r["bought_on"]) for r in rs)
+        if (days[-1] - days[0]).days < 90:
+            continue
+        early = [r["unit_price"] for r in rs if datetime.date.fromisoformat(r["bought_on"]) <= days[0] + datetime.timedelta(days=90)]
+        late = [r["unit_price"] for r in rs if datetime.date.fromisoformat(r["bought_on"]) >= days[-1] - datetime.timedelta(days=90)]
+        before, after = sum(early) / len(early), sum(late) / len(late)
+        if before > 0:
+            changes.append({"catalog_id": pid, "name": rs[0].get("name", ""), "before": round(before, 2),
+                            "after": round(after, 2), "change": after / before - 1,
+                            "weight": sum(r["unit_price"] * r["qty"] for r in rs)})
+    price = None
+    if changes:
+        weight = sum(c["weight"] for c in changes)
+        overall = sum(c["change"] * c["weight"] for c in changes) / weight
+        movers = sorted(changes, key=lambda c: -abs(c["change"]))
+        price = {
+            "change": round(overall, 3),
+            "products": len(changes),
+            "up": [dict(c, change=round(c["change"], 3)) for c in movers if c["change"] > 0.005][:5],
+            "down": [dict(c, change=round(c["change"], 3)) for c in movers if c["change"] < -0.005][:5],
+        }
+        for c in price["up"] + price["down"]:
+            c.pop("weight")
+    return {
+        "total": round(total, 2),
+        "from": min(r["bought_on"] for r in priced),
+        "to": max(r["bought_on"] for r in priced),
+        "trips": len(trips),
+        "weeks": len(weeks),
+        "a_shop": round(total / len(trips), 2),
+        "a_week": round(total / len(weeks), 2),
+        "months": [{"month": m, "spend": round(v, 2), "trips": len(month_trips[m])} for m, v in sorted(months.items())],
+        "prices": price,
+    }
 
 
 # The next shop: when it's likely to be, and what it needs.
@@ -190,9 +258,10 @@ def for_next_shop(item: dict, shop: datetime.date, shop_every: int, today: datet
 # A typical shop, aisle by aisle.
 
 def typical_shop(lines: list[dict], aisle_order: list[str]) -> dict | None:
-    """lines: one row per product bought on a trip, each {trip, aisle, name, qty, spend, kcal} (spend and kcal are
-    None when unknown). Returns averages per trip, overall and aisle by aisle (in aisle order), with the products
-    found on the most trips in each aisle; None when there are no trips."""
+    """lines: one row per product bought on a trip, each {trip, day, aisle, name, qty, spend, kcal} (spend and kcal
+    are None when unknown). Returns averages per trip, overall and aisle by aisle (in aisle order), with the products
+    found on the most trips in each aisle, and calories per week over the weeks you shopped (a week with no shopping,
+    say you were away or shopped elsewhere, isn't counted); None when there are no trips."""
     trips = {line["trip"] for line in lines}
     if not trips:
         return None
@@ -228,12 +297,16 @@ def typical_shop(lines: list[dict], aisle_order: list[str]) -> dict | None:
         })
     priced = sum(a["priced"] for a in aisles.values())
     counted = sum(a["counted"] for a in aisles.values())
+    # Weeks run Monday to Sunday.
+    weeks = {(d := datetime.date.fromisoformat(line["day"])) - datetime.timedelta(days=d.weekday()) for line in lines if line.get("day")}
     return {
         "trips": n,
         "products": round(len(lines) / n, 1),
         "units": round(sum(line["qty"] for line in lines) / n, 1),
         "spend": round(sum(a["spend"] for a in aisles.values()) / n, 2) if priced else None,
         "kcal": round(sum(a["kcal"] for a in aisles.values()) / n) if counted else None,
+        "weeks": len(weeks),
+        "kcal_week": round(sum(a["kcal"] for a in aisles.values()) / len(weeks)) if counted and weeks else None,
         # How much of what you buy has calories set, 0 to 1, so a total can be read for what it is.
         "kcal_known": round(counted / len(lines), 2),
         "aisles": out,

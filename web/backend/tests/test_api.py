@@ -175,6 +175,7 @@ def test_links(client):
     assert [s["name"] for s in links["stores"]] == ["Tesco", "Dunnes"]
     assert links["stores"][0]["search"] == "https://www.tesco.ie/shop/en-IE/search?query={q}"
     assert links["stores"][1]["search"] == "https://www.dunnesstoresgrocery.com/results?q={q}"
+    assert links["stores"][0]["home"] == "https://www.tesco.ie/shop/en-IE/"
     assert "{code}" in links["barcodes"]["product"] and "{q}" in links["barcodes"]["search"]
 
 
@@ -659,7 +660,11 @@ def test_next_shop(tmp_path):
     weekly = [trip(f"2026-{d} 11:00:00", [("Tesco Whole Milk 2L", 1, 2.19), ("Brennans Family Pan 800g", 1, 2.5)] +
                    ([("Loose Bananas", 1, 0.65)] if n % 2 == 0 else []))
               for n, d in enumerate(["09-05", "09-12", "09-19", "09-26", "10-03", "10-10"])]  # Saturdays
-    upload(c, {"purchases": weekly})
+    # Oat milk unevenly: 25 Jul, 29 Aug, 19 Sep and 26 Sep, so it's due around the 17th but it's hard to say
+    oat = ("Oatly Oat Drink 1L", 1, 2.4)
+    for n in (2, 3):
+        weekly[n]["items"].append({"name": oat[0], "quantity": 1, "weight": 0.0, "price": 2.4, "volume": 1.0})
+    upload(c, {"purchases": [trip("2026-07-25 11:00:00", [oat]), trip("2026-08-29 11:00:00", [oat])] + weekly})
     c.post("/api/list", json={"name": "Birthday candles", "category": "Other"})
 
     plan = c.get("/api/next-shop").json()
@@ -672,6 +677,12 @@ def test_next_shop(tmp_path):
         "Birthday candles": ("added", "Added"),
     }
     assert [i["category"] for i in plan["items"]] == ["Fruit & veg", "Bakery", "Dairy & eggs", "Other"]  # in aisle order
+    # Not sure: a maybe, out of the shop until you add it
+    assert [(i["name"], i["badge"]) for i in plan["maybe"]] == [("Oatly Oat Drink 1L", "unsure")]
+    c.post("/api/list", json={"name": "Oatly Oat Drink 1L", "category": "Dairy & eggs"})
+    added = c.get("/api/next-shop").json()
+    assert added["maybe"] == [] and ("Oatly Oat Drink 1L", "added") in {(i["name"], i["badge"]) for i in added["items"]}
+    c.delete(f"/api/list/{next(i['list_item_id'] for i in added['items'] if i['name'] == 'Oatly Oat Drink 1L')}")
 
     # Take the bread off this shop, then put it back
     bread = next(i for i in plan["items"] if i["name"].startswith("Brennans"))
@@ -683,7 +694,7 @@ def test_next_shop(tmp_path):
 
     # Nothing bought yet: no date, just what you added
     empty = TestClient(create_app(db_path=str(tmp_path / "e.db"), static_dir=str(tmp_path / "none"))).get("/api/next-shop").json()
-    assert empty == {"shop": None, "items": [], "skipped": []}
+    assert empty == {"shop": None, "items": [], "maybe": [], "skipped": []}
 
 
 def test_generic_items_pick_one_sets_and_calories(tmp_path):
@@ -741,6 +752,21 @@ def test_generic_items_pick_one_sets_and_calories(tmp_path):
     assert next(i for i in plan["items"] if i["name"] == "Broccoli")["kcal_low"] == 100
     # Clearing calories
     assert c.patch(f"/api/catalog/{chicken}", json={"kcal": None}).json()["kcal"] is None
+
+    # Macros per pack, and the food pyramid shelf: guessed, then set
+    milk = c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"protein": 68.04, "carbs": 96, "fat": 72}).json()
+    assert (milk["protein"], milk["carbs"], milk["fat"]) == (68.0, 96, 72)
+    assert milk["food_group"] == "" and milk["food_group_guess"] == "dairy"
+    assert c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"food_group": "cake"}).status_code == 422
+    c.patch(f"/api/catalog/{ids['Tesco Tenderstem Broccoli 200g']}", json={"protein": 6})
+    plan = {i["name"]: i for i in c.get("/api/next-shop").json()["items"]}
+    assert plan["Tesco Whole Milk 2L"]["protein"] == 68.0 and plan["Tesco Whole Milk 2L"]["food_group"] == "dairy"
+    assert plan["Broccoli"]["protein"] == 6 and plan["Broccoli"]["food_group"] == "veg"  # from its kind
+    assert plan["Protein"]["food_group"] == "protein"
+    c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"food_group": "treats", "fat": None})
+    plan = {i["name"]: i for i in c.get("/api/next-shop").json()["items"]}
+    assert plan["Tesco Whole Milk 2L"]["food_group"] == "treats" and plan["Tesco Whole Milk 2L"]["fat"] is None
+    assert [g["id"] for g in c.get("/api/food-groups").json()] == ["veg", "starch", "dairy", "protein", "fats", "treats"]
 
     # A kind can't join a set (its generic item can), and a set's name can't be an item's
     assert c.patch(f"/api/catalog/{ids['Tesco Broccoli Florets 360g']}", json={"or_set": "Protein"}).status_code == 409

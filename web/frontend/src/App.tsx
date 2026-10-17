@@ -3,12 +3,12 @@ import { api, isBarcode, itemLinks, type CatalogItem, type Links, type ListItem,
 import Manage from "./Manage";
 import NextShop from "./NextShop";
 import Settings from "./Settings";
-import Shop from "./Shop";
+import ShopOnline from "./ShopOnline";
+import ThemeSwitch from "./Theme";
 import Suggestions from "./Suggestions";
 
-// The old tick-off list and Shop online are switched off for now; flip these to bring them back.
+// The old tick-off list is switched off for now; flip this to bring it back.
 const SHOW_LIST = false;
-const SHOW_SHOP = false;
 
 const POLL_MS = 10_000;
 
@@ -155,18 +155,21 @@ export default function App() {
   };
 
   return (
-    <main className={tab === "list" ? "wide" : undefined}>
+    <main className={tab === "list" || tab === "shop" ? "wide" : undefined}>
       <header>
         <div className="title-row">
           <h1>Shopping list</h1>
-          <a
-            href="#settings"
-            className={`settings-link${tab === "settings" ? " on" : ""}`}
-            aria-current={tab === "settings" ? "page" : undefined}
-            onClick={(e) => (e.preventDefault(), go("settings"))}
-          >
-            Settings
-          </a>
+          <span className="header-links">
+            <ThemeSwitch />
+            <a
+              href="#settings"
+              className={`settings-link${tab === "settings" ? " on" : ""}`}
+              aria-current={tab === "settings" ? "page" : undefined}
+              onClick={(e) => (e.preventDefault(), go("settings"))}
+            >
+              Settings
+            </a>
+          </span>
         </div>
         {SHOW_LIST && (
           <p className="muted">
@@ -197,9 +200,9 @@ export default function App() {
       ) : tab === "common" ? (
         <Manage catalog={catalog} categories={categories} links={links} groupBy={groupBy} run={run} />
       ) : tab === "shop" ? (
-        SHOW_SHOP && <Shop list={list} links={links} groupBy={groupBy} run={run} />
+        <ShopOnline listSize={list.length} catalog={catalog} links={links} groupBy={groupBy} run={run} />
       ) : !SHOW_LIST ? (
-        <NextShop listSize={list.length} groupBy={groupBy} run={run} />
+        <NextShop listSize={list.length} catalog={catalog} groupBy={groupBy} run={run} />
       ) : (
         <>
           <section aria-labelledby="list-heading">

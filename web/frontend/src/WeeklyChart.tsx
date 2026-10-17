@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
-type Week = { week: string; qty: number; trips: number; kinds?: string[] };
+type Week = { week: string; qty: number; trips: number; kinds?: string[]; shopped?: boolean };
 type Cell = Week & { future: boolean };
 
 const ROWS = 4; // weeks per column: a steady 4, so a weekly or fortnightly habit lines up across the grid
@@ -22,10 +22,15 @@ const monthIndex = (week: string) => Number(week.slice(0, 4)) * 12 + Number(week
 /**
  * A square for every week, oldest first, four to a column, filled when the item was bought that week. Alternate
  * months are shaded, with the month's name above the column it starts in. The week it's expected next has a
- * dashed outline.
+ * dashed outline, and a week with no shopping at all is left hollow, so it isn't read as "didn't buy it". It
+ * opens on the latest weeks; scroll left for older ones.
  */
 export default function WeeklyChart({ weeks, expected }: { weeks: Week[]; expected: string | null }) {
   const [hover, setHover] = useState<Cell | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (scroller.current) scroller.current.scrollLeft = scroller.current.scrollWidth;
+  }, [weeks]);
   if (!weeks.length) return null;
 
   // Carry on to the expected week if it's still to come.
@@ -58,10 +63,12 @@ export default function WeeklyChart({ weeks, expected }: { weeks: Week[]; expect
   }
 
   const boughtWeeks = weeks.filter((w) => w.qty > 0).length;
+  const noShopping = weeks.some((w) => w.shopped === false);
+  const years = (weeks.length / 52).toFixed(1).replace(/\.0$/, "");
 
   return (
     <div className="weekly">
-      <div className="weekly-scroll">
+      <div className="weekly-scroll" ref={scroller} tabIndex={0} aria-label="Weekly history; scroll for older weeks">
         <svg width={width} height={height} role="img" aria-label={`Bought in ${boughtWeeks} of the last ${weeks.length} weeks.`}>
           {labels.map((l) => (
             <text key={l.x} x={l.x} y={TOP - 5} className="axis">
@@ -80,7 +87,7 @@ export default function WeeklyChart({ weeks, expected }: { weeks: Week[]; expect
                 width={CELL}
                 height={CELL}
                 rx={4}
-                className={`cell${shade}${c.qty > 0 ? " bought" : ""}${c.future ? " future" : ""}${isExpected ? " expected" : ""}${hover?.week === c.week ? " on" : ""}`}
+                className={`cell${shade}${c.qty > 0 ? " bought" : ""}${c.shopped === false ? " noshop" : ""}${c.future ? " future" : ""}${isExpected ? " expected" : ""}${hover?.week === c.week ? " on" : ""}`}
                 onMouseEnter={() => setHover(c)}
                 onMouseLeave={() => setHover(null)}
                 onClick={() => setHover(hover?.week === c.week ? null : c)}
@@ -103,11 +110,17 @@ export default function WeeklyChart({ weeks, expected }: { weeks: Week[]; expect
               <span className="swatch" aria-hidden="true" />
               <span className="swatch shade" aria-hidden="true" /> not bought (shading marks the months)
             </span>
+            {noShopping && (
+              <span className="key-item">
+                <span className="swatch noshop" aria-hidden="true" /> no shopping that week
+              </span>
+            )}
             {expectedWeek && (
               <span className="key-item">
                 <span className="swatch expected" aria-hidden="true" /> expected next
               </span>
             )}
+            {weeks.length > 30 && <span className="key-item">{years} years · scroll back for older weeks</span>}
           </>
         )}
       </p>
@@ -119,7 +132,9 @@ function describe(c: Cell, isExpected: boolean): string {
   const when = `Week of ${fmt(c.week, { day: "numeric", month: "short", year: "numeric" })}`;
   const what = c.future
     ? "still to come"
-    : c.qty === 0
+    : c.shopped === false
+      ? "no shopping that week"
+      : c.qty === 0
       ? "none bought"
       : `${c.qty} bought${c.trips > 1 ? ` on ${c.trips} trips` : ""}${c.kinds?.length ? ` (${c.kinds.join(", ")})` : ""}`;
   return `${when}: ${what}${isExpected ? " (expected next)" : ""}`;

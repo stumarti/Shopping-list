@@ -12,8 +12,17 @@
   color-scheme: light dark;
 }
 
+/* Light or dark from the header switch; otherwise it follows the device. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --ground: #121614;
     --surface: #1b211e;
     --ink: #e8ece9;
@@ -25,6 +34,19 @@
     --danger: #f2b8b5;
     --danger-soft: #3a1f1d;
   }
+}
+
+:root[data-theme="dark"] {
+  --ground: #121614;
+  --surface: #1b211e;
+  --ink: #e8ece9;
+  --muted: #9aa69f;
+  --line: #2d3531;
+  --accent: #4cbb83;
+  --accent-soft: #1f3529;
+  --accent-ink: #08130d;
+  --danger: #f2b8b5;
+  --danger-soft: #3a1f1d;
 }
 
 * {
@@ -722,6 +744,26 @@ a {
   color: var(--accent);
 }
 
+.header-links {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.theme-switch {
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.theme-switch:hover {
+  color: var(--accent);
+}
+
 .row {
   display: flex;
   gap: 8px;
@@ -938,10 +980,15 @@ progress {
 }
 
 @media (prefers-color-scheme: dark) {
-  .weekly {
+  :root:not([data-theme="light"]) .weekly {
     --bar: #3aab72;
     --month-shade: #2a332e;
   }
+}
+
+:root[data-theme="dark"] .weekly {
+  --bar: #3aab72;
+  --month-shade: #2a332e;
 }
 
 .weekly-scroll {
@@ -970,6 +1017,12 @@ progress {
 .weekly .cell.future {
   fill: none;
   stroke-dasharray: 2 2;
+}
+
+/* No shopping at all that week: hollow, so it doesn't read as "didn't buy it" */
+.weekly .cell.noshop {
+  fill: none;
+  stroke-dasharray: 1 2;
 }
 
 .weekly .cell.expected {
@@ -1027,6 +1080,11 @@ progress {
   border: 1.5px dashed var(--ink);
 }
 
+.swatch.noshop {
+  background: none;
+  border-style: dotted;
+}
+
 /* Next shop */
 :root {
   --weekly-bg: #e3efe7;
@@ -1040,7 +1098,7 @@ progress {
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --weekly-bg: #1f3529;
     --weekly-ink: #8fd6ae;
     --scheduled-bg: #1c2b40;
@@ -1050,6 +1108,17 @@ progress {
     --added-bg: #2a302c;
     --added-ink: #c5ccc7;
   }
+}
+
+:root[data-theme="dark"] {
+  --weekly-bg: #1f3529;
+  --weekly-ink: #8fd6ae;
+  --scheduled-bg: #1c2b40;
+  --scheduled-ink: #9cc3f2;
+  --unsure-bg: #3a2e15;
+  --unsure-ink: #f0c879;
+  --added-bg: #2a302c;
+  --added-ink: #c5ccc7;
 }
 
 .shop-when .eyebrow {
@@ -1395,12 +1464,35 @@ progress {
 }
 
 .typical li {
-  display: grid;
-  grid-template-columns: minmax(0, 11rem) 1fr auto;
-  gap: 4px 12px;
-  align-items: center;
-  padding: 7px 0;
   border-top: 1px solid var(--line);
+}
+
+/* Each aisle is a button: tap to see just that aisle in the list */
+.typical-row {
+  display: grid;
+  grid-template-columns: minmax(0, 8.5rem) 1fr auto;
+  gap: 2px 10px;
+  align-items: center;
+  width: 100%;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  box-sizing: content-box;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.typical-row:hover {
+  background: var(--ground);
+}
+
+.typical-row.on {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .typical-name {
@@ -1441,13 +1533,8 @@ progress {
 }
 
 @media (max-width: 480px) {
-  .typical li {
-    grid-template-columns: 1fr auto;
-  }
-
-  .typical .bar {
-    grid-column: 1 / -1;
-    grid-row: 2;
+  .typical-row {
+    grid-template-columns: minmax(0, 7rem) 1fr auto;
   }
 }
 
@@ -1509,4 +1596,586 @@ main.wide {
 
 .shop-side .kcal {
   margin-top: 8px;
+}
+
+/* Next shop: one aisle at a time */
+.part {
+  margin-top: 14px;
+}
+
+.part-title {
+  margin: 0 0 2px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.part-note {
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+}
+
+.maybes {
+  margin-top: 22px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.shop-items .add-one {
+  flex: none;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.shop-items .add-one:hover {
+  background: var(--accent-soft);
+}
+
+.aisle-link {
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.aisle-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* Calories: what this shop and a usual week come to, against a week's needs */
+.kcal-row {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.kcal-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.kcal-note {
+  font-size: 0.8rem;
+}
+
+/* Shop online: your list and the prompt on the left, the store on the right */
+.online-layout {
+  display: grid;
+  gap: 0 24px;
+}
+
+.online-main,
+.online-store {
+  min-width: 0;
+}
+
+@media (min-width: 880px) {
+  .online-layout {
+    grid-template-columns: minmax(300px, 1fr) minmax(0, 1.6fr);
+    align-items: start;
+  }
+
+  .online-store {
+    position: sticky;
+    top: 8px;
+  }
+}
+
+.online-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.online-items li {
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+}
+
+.online-items li:first-child {
+  border-top: none;
+}
+
+.online-items a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.online-items a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.saved-dot {
+  margin-left: 6px;
+  color: var(--accent);
+  font-size: 0.8rem;
+}
+
+.howto {
+  margin: 10px 0 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--ground);
+  font-size: 0.9rem;
+}
+
+.howto summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.howto ol {
+  margin: 8px 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+
+.howto p {
+  margin: 0 0 4px;
+}
+
+textarea.prompt {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 10px 12px;
+  font: 0.8rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  resize: vertical;
+}
+
+.store-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+}
+
+.store-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.store-bar a.link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.online-store iframe {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 150px);
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.online-items .save-link {
+  margin-left: 8px;
+  font-size: 0.8rem;
+}
+
+.online-items .paste {
+  margin-top: 6px;
+}
+
+/* Your typical shop, compact */
+.typical-card .typical-sum {
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+}
+
+.typical-card .typical {
+  margin-top: 6px;
+  font-size: 0.9rem;
+}
+
+.typical-card .typical-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.typical-card .bar {
+  height: 6px;
+}
+
+.typical-card .typical-value {
+  display: block;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.typical-card .hint {
+  margin-top: 6px;
+}
+
+/* Calories: the household, macros and the food pyramid open on demand */
+.kcal .more {
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+  font-size: 0.9rem;
+}
+
+.kcal .more summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.kcal .more[open] > summary {
+  margin-bottom: 6px;
+}
+
+.kcal .more .kcal-row {
+  margin-top: 8px;
+}
+
+.household {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.household th {
+  text-align: left;
+  font-weight: 400;
+}
+
+.household td {
+  padding: 3px 0 3px 8px;
+  text-align: right;
+}
+
+@media (max-width: 480px) {
+  .household .per-day {
+    display: none;
+  }
+}
+
+.household .total th,
+.household .total td {
+  border-top: 1px solid var(--line);
+  padding-top: 5px;
+}
+
+.household label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.household input {
+  width: 52px;
+  margin-left: 4px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px 6px;
+}
+
+.kcal-label .muted {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.macros {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+  font-size: 0.85rem;
+}
+
+.macros li {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.macro-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The food pyramid: shelves centred, narrowest at the top */
+.pyramid {
+  list-style: none;
+  margin: 4px 0 6px;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+}
+
+.pyramid li {
+  position: relative;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  text-align: center;
+  font-size: 0.75rem;
+}
+
+.pyramid .shelf-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent-soft);
+}
+
+.pyramid .shelf-text {
+  position: relative;
+  display: grid;
+}
+
+.pyramid .shelf-name {
+  font-weight: 600;
+}
+
+/* Charts: one green, checked for light and dark */
+.price-chart,
+.spending {
+  --bar: #1a7f4b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .price-chart,
+  :root:not([data-theme="light"]) .spending {
+    --bar: #3aab72;
+  }
+}
+
+:root[data-theme="dark"] .price-chart,
+:root[data-theme="dark"] .spending {
+  --bar: #3aab72;
+}
+
+.price-chart svg,
+.spend-chart {
+  display: block;
+  margin-top: 4px;
+  max-width: 100%;
+}
+
+.price-chart .grid,
+.spend-chart .grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.price-chart .axis,
+.spend-chart .axis {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.price-line {
+  fill: none;
+  stroke: var(--bar);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.price-dot {
+  fill: var(--bar);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.crosshair {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.price-head {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.price-change {
+  margin-left: 8px;
+  font-weight: 600;
+}
+
+.chart-status {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  min-height: 1.2em;
+}
+
+/* Spending and prices, on Common items */
+.spending summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  cursor: pointer;
+}
+
+.spend-title {
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+
+.spend-headline {
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.spending details[open] > summary {
+  margin-bottom: 8px;
+}
+
+.spending h4 {
+  margin: 14px 0 2px;
+}
+
+.spend-bar {
+  fill: var(--bar);
+}
+
+.spend-bar.on {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.spend-chart .no-shop {
+  stroke: var(--line);
+  stroke-width: 2;
+  stroke-dasharray: 2 2;
+}
+
+.movers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 4px 24px;
+}
+
+.movers h5 {
+  margin: 8px 0 2px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.movers ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.movers li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--line);
+}
+
+.movers li > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.movers li .muted {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.move {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Per pack: calories, macros and food group */
+.nutrition {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.nutrition legend {
+  padding: 0 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.nutrition .food-group {
+  grid-column: 1 / -1;
+}
+
+.with-unit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.with-unit input {
+  width: 100%;
+  min-width: 0;
+}
+
+.with-unit .unit {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+@media (max-width: 480px) {
+  .nutrition {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.kcal {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
