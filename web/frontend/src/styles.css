@@ -1476,3 +1476,37 @@ progress {
 .by-kind li:first-child {
   border-top: none;
 }
+
+/* Next shop: the list on the left, the progress bars on the right */
+main.wide {
+  max-width: 1120px;
+}
+
+.shop-layout {
+  display: grid;
+  gap: 0 24px;
+}
+
+.shop-main,
+.shop-side {
+  min-width: 0;
+}
+
+@media (min-width: 880px) {
+  .shop-layout {
+    grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr);
+    align-items: start;
+  }
+
+  .shop-side {
+    position: sticky;
+    top: 0;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding-bottom: 24px;
+  }
+}
+
+.shop-side .kcal {
+  margin-top: 8px;
+}

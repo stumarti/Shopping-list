@@ -99,126 +99,136 @@ export default function NextShop({ listSize, groupBy, run }: Props) {
     order === "aisle" ? groupBy(plan.items).map(([aisle, items]) => [aisle, byTrips(items)]) : [["", byTrips(plan.items)]];
 
   return (
-    <>
-      <section aria-labelledby="shop-when" className="shop-when">
-        {plan.shop ? (
-          <>
-            <p className="muted eyebrow">Next shop</p>
-            <h2 id="shop-when">
-              {day(plan.shop.date).toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "long" })}{" "}
-              <span className="muted">({when(plan.shop.date)})</span>
-            </h2>
-            <p className="muted">
-              {plan.shop.reason}. Last shop {day(plan.shop.last_shop).toLocaleDateString("en-IE", { weekday: "short", day: "numeric", month: "short" })}.
-            </p>
-          </>
-        ) : (
-          <>
-            <h2 id="shop-when">Next shop</h2>
-            <p className="muted">
-              Upload your Tesco data in <a href="#settings">Settings</a> and this works out when you'll shop next and what you'll need.
-            </p>
-          </>
-        )}
-      </section>
+    <div className="shop-layout">
+      <div className="shop-main">
+        <section aria-labelledby="shop-when" className="shop-when">
+          {plan.shop ? (
+            <>
+              <p className="muted eyebrow">Next shop</p>
+              <h2 id="shop-when">
+                {day(plan.shop.date).toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "long" })}{" "}
+                <span className="muted">({when(plan.shop.date)})</span>
+              </h2>
+              <p className="muted">
+                {plan.shop.reason}. Last shop {day(plan.shop.last_shop).toLocaleDateString("en-IE", { weekday: "short", day: "numeric", month: "short" })}.
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 id="shop-when">Next shop</h2>
+              <p className="muted">
+                Upload your Tesco data in <a href="#settings">Settings</a> and this works out when you'll shop next and what you'll need.
+              </p>
+            </>
+          )}
+        </section>
 
-      <section aria-labelledby="shop-items">
-        <div className="section-head">
-          <h2 id="shop-items">What you'll need</h2>
-          <OrderToggle order={order} setOrder={setOrder} />
-        </div>
-        <p className="muted">
-          {plan.items.length} {plan.items.length === 1 ? "item" : "items"}
-          {unsure > 0 && ` · ${unsure} not sure`}
-        </p>
-        {plan.items.length > 0 && <Calories items={plan.items} people={people} setPeople={setPeople} />}
-        {undo && (
-          <p className="undo" role="status">
-            Removed {undo.name}.{" "}
-            <button className="link" onClick={() => putBack(undo)}>
-              Undo
-            </button>
-          </p>
-        )}
-        {plan.items.length === 0 && <p className="empty">Nothing yet. Add anything you need below.</p>}
-        {groups.map(([aisle, items]) => (
-          <div key={aisle || "all"} className="group">
-            {aisle && <h3>{aisle}</h3>}
-            <ul className="shop-items">
-              {items.map((i) => (
-                <li key={`${i.catalog_id ?? "l" + i.list_item_id}`} className={i.badge}>
-                  <div className="shop-item-main">
-                    <span className="shop-item-name">
-                      {i.name}
-                      {i.qty > 1 && <span className="muted"> ×{i.qty}</span>}
-                    </span>
-                    <span className="shop-item-meta">
-                      {i.kind === "or" && i.chosen === null && <span className="badge pick">Pick one</span>}
-                      <span className={`badge ${i.badge}`}>{i.label}</span>
-                      <span className="muted">{i.detail}</span>
-                      {i.kcal_low !== null && i.kcal_high !== null && (
-                        <span className="muted">≈ {range(i.kcal_low * i.qty, i.kcal_high * i.qty)} kcal</span>
-                      )}
-                      {order === "often" && <span className="muted">· {i.category}</span>}
-                    </span>
-                    {i.options && (
-                      <span className="options" role="group" aria-label={`Pick one for ${i.name}`}>
-                        {i.options.map((o, n) => (
-                          <Fragment key={o.catalog_id}>
-                            {n > 0 && <span className="or">or</span>}
-                            <button
-                              className={`option${i.chosen === o.catalog_id ? " on" : ""}`}
-                              aria-pressed={i.chosen === o.catalog_id}
-                              title={o.due ? "Due for this shop" : "Not due yet"}
-                              onClick={() => choose(i, o.catalog_id)}
-                            >
-                              {o.name}
-                              {o.due && <span className="due-dot" aria-label="(due)" />}
-                            </button>
-                          </Fragment>
-                        ))}
-                      </span>
-                    )}
-                  </div>
-                  <button className="remove" aria-label={`Remove ${i.name} from this shop`} title="Remove from this shop" onClick={() => remove(i)}>
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
+        <section aria-labelledby="shop-items">
+          <div className="section-head">
+            <h2 id="shop-items">What you'll need</h2>
+            <OrderToggle order={order} setOrder={setOrder} />
           </div>
-        ))}
-        <form className="add-form shop-add" onSubmit={add}>
-          <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add something else…" aria-label="Add an item" maxLength={80} />
-          <button type="submit" className="primary" disabled={!text.trim()}>
-            Add
-          </button>
-        </form>
-        {plan.skipped.length > 0 && (
-          <details className="skipped">
-            <summary>Removed from this shop ({plan.skipped.length})</summary>
-            <ul>
-              {plan.skipped.map((i) => (
-                <li key={i.catalog_id}>
-                  <span>{i.name}</span>
-                  <button className="link" onClick={() => putBack(i)}>
-                    Put back
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
-        <p className="muted hint">
-          <span className="badge weekly">Weekly</span> and <span className="badge scheduled">Every 2 weeks</span> are things you buy like
-          clockwork. <span className="badge unsure">Not sure</span> means you buy it unevenly or now and then, so check.{" "}
-          <span className="badge pick">Pick one</span> is a set where one will do this week: tap the one you'll get. Removing something only
-          takes it off this shop.
-        </p>
-      </section>
+          <p className="muted">
+            {plan.items.length} {plan.items.length === 1 ? "item" : "items"}
+            {unsure > 0 && ` · ${unsure} not sure`}
+          </p>
+          {undo && (
+            <p className="undo" role="status">
+              Removed {undo.name}.{" "}
+              <button className="link" onClick={() => putBack(undo)}>
+                Undo
+              </button>
+            </p>
+          )}
+          {plan.items.length === 0 && <p className="empty">Nothing yet. Add anything you need below.</p>}
+          {groups.map(([aisle, items]) => (
+            <div key={aisle || "all"} className="group">
+              {aisle && <h3>{aisle}</h3>}
+              <ul className="shop-items">
+                {items.map((i) => (
+                  <li key={`${i.catalog_id ?? "l" + i.list_item_id}`} className={i.badge}>
+                    <div className="shop-item-main">
+                      <span className="shop-item-name">
+                        {i.name}
+                        {i.qty > 1 && <span className="muted"> ×{i.qty}</span>}
+                      </span>
+                      <span className="shop-item-meta">
+                        {i.kind === "or" && i.chosen === null && <span className="badge pick">Pick one</span>}
+                        <span className={`badge ${i.badge}`}>{i.label}</span>
+                        <span className="muted">{i.detail}</span>
+                        {i.kcal_low !== null && i.kcal_high !== null && (
+                          <span className="muted">≈ {range(i.kcal_low * i.qty, i.kcal_high * i.qty)} kcal</span>
+                        )}
+                        {order === "often" && <span className="muted">· {i.category}</span>}
+                      </span>
+                      {i.options && (
+                        <span className="options" role="group" aria-label={`Pick one for ${i.name}`}>
+                          {i.options.map((o, n) => (
+                            <Fragment key={o.catalog_id}>
+                              {n > 0 && <span className="or">or</span>}
+                              <button
+                                className={`option${i.chosen === o.catalog_id ? " on" : ""}`}
+                                aria-pressed={i.chosen === o.catalog_id}
+                                title={o.due ? "Due for this shop" : "Not due yet"}
+                                onClick={() => choose(i, o.catalog_id)}
+                              >
+                                {o.name}
+                                {o.due && <span className="due-dot" aria-label="(due)" />}
+                              </button>
+                            </Fragment>
+                          ))}
+                        </span>
+                      )}
+                    </div>
+                    <button className="remove" aria-label={`Remove ${i.name} from this shop`} title="Remove from this shop" onClick={() => remove(i)}>
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          <form className="add-form shop-add" onSubmit={add}>
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add something else…" aria-label="Add an item" maxLength={80} />
+            <button type="submit" className="primary" disabled={!text.trim()}>
+              Add
+            </button>
+          </form>
+          {plan.skipped.length > 0 && (
+            <details className="skipped">
+              <summary>Removed from this shop ({plan.skipped.length})</summary>
+              <ul>
+                {plan.skipped.map((i) => (
+                  <li key={i.catalog_id}>
+                    <span>{i.name}</span>
+                    <button className="link" onClick={() => putBack(i)}>
+                      Put back
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <p className="muted hint">
+            <span className="badge weekly">Weekly</span> and <span className="badge scheduled">Every 2 weeks</span> are things you buy like
+            clockwork. <span className="badge unsure">Not sure</span> means you buy it unevenly or now and then, so check.{" "}
+            <span className="badge pick">Pick one</span> is a set where one will do this week: tap the one you'll get. Removing something only
+            takes it off this shop.
+          </p>
+        </section>
+      </div>
 
-      {typical && <Typical t={typical} />}
-    </>
+      {/* The progress bars: calories against a week, and the typical shop by aisle. */}
+      <aside className="shop-side" aria-label="How this shop compares">
+        {plan.items.length > 0 && (
+          <section aria-labelledby="kcal-heading">
+            <h2 id="kcal-heading">Calories</h2>
+            <Calories items={plan.items} people={people} setPeople={setPeople} />
+          </section>
+        )}
+        {typical && <Typical t={typical} />}
+      </aside>
+    </div>
   );
 }
 
