@@ -12,9 +12,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from . import clubcard
-from .catalog import CATEGORIES, guess_aisle
+from .catalog import guess_aisle
 from .db import Database, category_order
-from .stats import group_suggestions, item_stats
+from .finder import BarcodeFinder
+from .stats import group_suggestions, item_stats, weekly
 from .lookup import STORES, Fetch, fill_link, http_fetch, is_barcode, link_templates, lookup_barcode, product_url
 
 USERSCRIPT_NAME = "shopping-list.user.js"
@@ -87,6 +88,20 @@ class PastOrder(BaseModel):
     items: list[OrderLine] = Field(min_length=1, max_length=400)
 
 
+class AisleName(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+    _name = field_validator("name")(tidy_name)
+
+
+class AisleOrder(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class FindBarcodes(BaseModel):
+    retry: bool = False  # also try items that found nothing last time
+
+
 class NewListItem(NewCatalogItem):
     category: str | None = None  # left out: the common item's aisle, or Other
     qty: int = Field(default=1, ge=1, le=99)
@@ -98,8 +113,8 @@ class ListItemChange(BaseModel):
     note: str | None = Field(default=None, max_length=120)
 
 
-def sort_items(items: list[dict]) -> list[dict]:
-    return sorted(items, key=lambda i: (category_order(i["category"]), i["name"].lower()))
+def _sort_items(items: list[dict], order: list[str]) -> list[dict]:
+    return sorted(items, key=lambda i: (category_order(i["category"], order), i["name"].lower()))
 
 
 def _neg_date(iso: str | None) -> int:
@@ -107,17 +122,24 @@ def _neg_date(iso: str | None) -> int:
     return -datetime.date.fromisoformat(iso).toordinal() if iso else 0
 
 
-def aisle(category: str | None) -> str:
-    return category if category in CATEGORIES else "Other"
-
-
 def create_app(
     db_path: str | None = None,
     static_dir: str | None = None,
     fetch: Fetch = http_fetch,
     today=datetime.date.today,
+    search_gap: float = 6.5,
 ) -> FastAPI:
     db = Database(db_path or os.environ.get("DB_PATH", "shopping.db"))
+    finder = BarcodeFinder(db, fetch, search_gap)
+
+    def aisle(category: str | None) -> str:
+        return db.aisle(category)
+
+    def guess(title: str) -> str:
+        return db.aisle_for_key(guess_aisle(title))
+
+    def sort_items(items: list[dict]) -> list[dict]:
+        return _sort_items(items, db.aisle_names())
 
     def imports_dir() -> Path:
         return Path(os.environ.get("IMPORTS_DIR") or Path(db.path).resolve().parent / "imports")
@@ -145,7 +167,7 @@ def create_app(
         return items
 
     def catalog_item(item_id: int) -> dict:
-        rows = db.rows("SELECT id, name, category, custom, barcode FROM catalog WHERE id = ?", (item_id,))
+        rows = db.rows("SELECT id, name, category, custom, barcode, barcode_source FROM catalog WHERE id = ?", (item_id,))
         if not rows:
             raise HTTPException(404, "That common item has gone")
         rows[0]["custom"] = bool(rows[0]["custom"])
@@ -176,7 +198,7 @@ def create_app(
 
     @app.get("/api/categories")
     def categories():
-        return CATEGORIES
+        return db.aisle_names()
 
     @app.get("/api/links")
     def links():
@@ -197,13 +219,96 @@ def create_app(
             raise HTTPException(502, "Couldn't reach the barcode directory. Type the name instead.")
         if not found:
             raise HTTPException(404, "That barcode isn't in Open Food Facts. Type the name and it'll be remembered.")
-        return found
+        return {**found, "category": db.aisle_for_key(found["category"])}
+
+    # Aisles (Settings)
+
+    def aisle_row(aisle_id: int) -> dict:
+        rows = db.rows("SELECT id, name, key FROM aisles WHERE id = ?", (aisle_id,))
+        if not rows:
+            raise HTTPException(404, "That aisle has gone")
+        return rows[0]
+
+    @app.get("/api/aisles")
+    def list_aisles():
+        counts = {r["category"]: r["n"] for r in db.rows("SELECT category, count(*) AS n FROM catalog GROUP BY category")}
+        fallback = db.fallback_aisle()
+        return [
+            {"id": r["id"], "name": r["name"], "items": counts.get(r["name"], 0), "fallback": r["name"] == fallback}
+            for r in db.rows("SELECT id, name FROM aisles ORDER BY position, id")
+        ]
+
+    @app.post("/api/aisles", status_code=201)
+    def add_aisle(body: AisleName):
+        with db.tx() as conn:
+            if conn.execute("SELECT 1 FROM aisles WHERE lower(name) = lower(?)", (body.name,)).fetchone():
+                raise HTTPException(409, f"There's already an aisle called {body.name}")
+            # New aisles go just before the fallback one, so "Other" stays last.
+            fallback = conn.execute("SELECT position FROM aisles WHERE key = 'Other'").fetchone()
+            if fallback:
+                conn.execute("UPDATE aisles SET position = position + 1 WHERE position >= ?", (fallback["position"],))
+                position = fallback["position"]
+            else:
+                position = conn.execute("SELECT coalesce(max(position), -1) + 1 FROM aisles").fetchone()[0]
+            new_id = conn.execute("INSERT INTO aisles (name, position) VALUES (?, ?)", (body.name, position)).lastrowid
+        return aisle_row(new_id)
+
+    @app.patch("/api/aisles/{aisle_id}")
+    def rename_aisle(aisle_id: int, body: AisleName):
+        old = aisle_row(aisle_id)
+        with db.tx() as conn:
+            if conn.execute("SELECT 1 FROM aisles WHERE lower(name) = lower(?) AND id != ?", (body.name, aisle_id)).fetchone():
+                raise HTTPException(409, f"There's already an aisle called {body.name}")
+            conn.execute("UPDATE aisles SET name = ? WHERE id = ?", (body.name, aisle_id))
+            # Everything in it moves with it.
+            conn.execute("UPDATE catalog SET category = ? WHERE category = ?", (body.name, old["name"]))
+            conn.execute("UPDATE list_items SET category = ? WHERE category = ?", (body.name, old["name"]))
+        return aisle_row(aisle_id)
+
+    @app.put("/api/aisles/order")
+    def reorder_aisles(body: AisleOrder):
+        known = {r["id"] for r in db.rows("SELECT id FROM aisles")}
+        if set(body.ids) != known or len(body.ids) != len(known):
+            raise HTTPException(422, "Send every aisle once, in the new order")
+        with db.tx() as conn:
+            for n, aisle_id in enumerate(body.ids):
+                conn.execute("UPDATE aisles SET position = ? WHERE id = ?", (n, aisle_id))
+        return list_aisles()
+
+    @app.delete("/api/aisles/{aisle_id}")
+    def remove_aisle(aisle_id: int, move_to: int | None = None):
+        """Remove an aisle; its items move to move_to (or the fallback aisle)."""
+        gone = aisle_row(aisle_id)
+        if gone["name"] == db.fallback_aisle():
+            raise HTTPException(409, f"{gone['name']} is where unsorted things go, so it can't be removed. Rename it instead.")
+        target = aisle_row(move_to)["name"] if move_to else db.fallback_aisle()
+        if target == gone["name"]:
+            raise HTTPException(422, "Pick a different aisle to move its items to")
+        with db.tx() as conn:
+            conn.execute("UPDATE catalog SET category = ? WHERE category = ?", (target, gone["name"]))
+            conn.execute("UPDATE list_items SET category = ? WHERE category = ?", (target, gone["name"]))
+            conn.execute("DELETE FROM aisles WHERE id = ?", (aisle_id,))
+        return list_aisles()
+
+    # Finding barcodes for common items in the public databases (Settings)
+
+    @app.post("/api/barcodes/find")
+    def start_finding(body: FindBarcodes):
+        return finder.start(retry=body.retry)
+
+    @app.get("/api/barcodes/find")
+    def finding_status():
+        return finder.status()
+
+    @app.post("/api/barcodes/find/stop")
+    def stop_finding():
+        return finder.stop()
 
     # Common items
 
     @app.get("/api/catalog")
     def get_catalog():
-        items = db.rows("SELECT id, name, category, custom, barcode FROM catalog")
+        items = db.rows("SELECT id, name, category, custom, barcode, barcode_source FROM catalog")
         for i in items:
             i["custom"] = bool(i["custom"])
         return sort_items(with_products(items))
@@ -244,6 +349,12 @@ def create_app(
         changes = body.model_dump(exclude_none=True)
         if "category" in changes:
             changes["category"] = aisle(changes["category"])
+        if "name" in changes:
+            changes["custom"] = 1  # renamed by you, e.g. "Milk" → "Avonmore Milk 2L": no longer a generic starter
+        if "barcode" in changes:
+            # Your own barcode (or clearing one) is final: the barcode finder leaves this item alone after.
+            changes["barcode_source"] = "you" if changes["barcode"] else ""
+            changes["barcode_checked_at"] = datetime.datetime.now().isoformat(timespec="seconds")
         if changes:
             with db.tx() as conn:
                 if "name" in changes and conn.execute(
@@ -351,7 +462,7 @@ def create_app(
                         catalog_id = named["id"]
                     else:
                         catalog_id = conn.execute(
-                            "INSERT INTO catalog (name, category, custom) VALUES (?, ?, 1)", (name, guess_aisle(title))
+                            "INSERT INTO catalog (name, category, custom) VALUES (?, ?, 1)", (name, guess(title))
                         ).lastrowid
                         new_items += 1
                     conn.execute(
@@ -455,7 +566,7 @@ def create_app(
                 elif counts.get(key, 0) >= min_trips:
                     nonlocal new_items
                     catalog_ids[key] = conn.execute(
-                        "INSERT INTO catalog (name, category, custom) VALUES (?, ?, 1)", (name, guess_aisle(title))
+                        "INSERT INTO catalog (name, category, custom) VALUES (?, ?, 1)", (name, guess(title))
                     ).lastrowid
                     new_items += 1
                 else:
@@ -520,7 +631,12 @@ def create_app(
             "FROM purchases WHERE catalog_id = ? ORDER BY bought_at, id",
             (catalog_id,),
         )
-        return {"item": {"id": item["id"], "name": item["name"]}, "summary": item_stats(rows), "purchases": rows}
+        return {
+            "item": {"id": item["id"], "name": item["name"]},
+            "summary": item_stats(rows),
+            "weekly": weekly(rows, today()),
+            "purchases": rows,
+        }
 
     @app.get("/userscript/" + USERSCRIPT_NAME, include_in_schema=False)
     def userscript(request: Request):

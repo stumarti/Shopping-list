@@ -59,3 +59,25 @@ def test_grouping_orders_and_quantities():
     assert g["will"][0]["qty"] == 2
     assert [i["name"] for i in g["might"]] == ["Nappies"]
     assert [i["name"] for i in g["extras"]] == ["Cake", "Wine"]
+
+
+def test_next_expected():
+    s = bought(7, 14, 21, 28)
+    assert s["next_expected"] == TODAY.isoformat()  # last a week ago, bought weekly
+    assert bought(5)["next_expected"] is None
+
+
+def test_weekly_counts_from_first_purchase():
+    from app.stats import weekly
+    rows = [
+        {"store": "tesco", "order_ref": "a", "bought_on": "2026-09-29", "qty": 2},  # Tue, week of 28 Sep
+        {"store": "tesco", "order_ref": "b", "bought_on": "2026-10-04", "qty": 1},  # Sun, same week
+        {"store": "tesco", "order_ref": "c", "bought_on": "2026-10-13", "qty": 1},  # week of 12 Oct
+    ]
+    assert weekly(rows, TODAY) == [  # TODAY is Sat 17 Oct 2026
+        {"week": "2026-09-28", "qty": 3, "trips": 2},
+        {"week": "2026-10-05", "qty": 0, "trips": 0},
+        {"week": "2026-10-12", "qty": 1, "trips": 1},
+    ]
+    long_ago = [{"store": "t", "order_ref": "x", "bought_on": "2024-01-01", "qty": 1}]
+    assert len(weekly(long_ago, TODAY)) == 52 and weekly([], TODAY)[-1]["week"] == "2026-10-12"

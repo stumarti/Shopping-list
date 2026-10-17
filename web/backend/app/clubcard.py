@@ -93,15 +93,17 @@ def _price(line: dict) -> float | None:
 def prices_are_line_totals(purchase: dict) -> bool:
     """Whether "price" is what the whole line cost rather than one item.
 
-    Decided per trip by which reading adds up closer to the basket total. Trips where everything is a single
-    item read the same either way."""
-    total = purchase.get("basketValueGross")
-    if not isinstance(total, (int, float)):
+    Decided per trip: only when adding prices up as line totals matches the basket total (gross or net,
+    within 2%) and adding them up per item doesn't. Otherwise, including when the totals don't add up
+    either way, prices are taken as per item. Trips where everything is a single item read the same."""
+    totals = [t for t in (purchase.get("basketValueGross"), purchase.get("basketValueNet")) if isinstance(t, (int, float)) and t > 0]
+    if not totals:
         return False
     items = [i for i in purchase.get("items") or [] if isinstance(i, dict) and _price(i) is not None]
     per_item = sum(_price(i) * _qty(i) for i in items)
     per_line = sum(_price(i) for i in items)
-    return abs(per_line - total) < abs(per_item - total)
+    matches = lambda value: any(abs(value - t) <= max(0.05, 0.02 * t) for t in totals)
+    return matches(per_line) and not matches(per_item)
 
 
 def _qty(line: dict) -> int:

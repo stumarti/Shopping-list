@@ -24,6 +24,11 @@ def item_stats(rows: list[dict]) -> dict:
         "last_bought": days[-1] if days else None,
         "every_days": round(median(gaps)) if len(gaps) >= 2 else None,
         "usual_qty": round(sum(r["qty"] for r in rows) / trips, 1) if trips else None,
+        # When it's likely to be bought next: the last time plus the usual gap.
+        "next_expected": (
+            (datetime.date.fromisoformat(days[-1]) + datetime.timedelta(days=round(usual_gap))).isoformat()
+            if usual_gap and days else None
+        ),
         "price": None,
     }
     if priced:
@@ -89,3 +94,27 @@ def group_suggestions(items: list[dict], today: datetime.date) -> dict[str, list
     groups["extras"].sort(key=lambda i: (-i["trips"], -datetime.date.fromisoformat(i["last_bought"]).toordinal(), i["name"]))
     groups["extras"] = groups["extras"][:15]
     return groups
+
+
+def weekly(rows: list[dict], today: datetime.date, weeks: int = 52) -> list[dict]:
+    """How many were bought each week (Monday to Sunday), for the last `weeks` weeks up to this one,
+    starting no earlier than the week of the first purchase."""
+    this_week = today - datetime.timedelta(days=today.weekday())
+    start = this_week - datetime.timedelta(weeks=weeks - 1)
+    if rows:
+        first = datetime.date.fromisoformat(min(r["bought_on"] for r in rows))
+        start = max(start, first - datetime.timedelta(days=first.weekday()))
+    counts: dict[datetime.date, dict] = {}
+    for r in rows:
+        d = datetime.date.fromisoformat(r["bought_on"])
+        week = d - datetime.timedelta(days=d.weekday())
+        c = counts.setdefault(week, {"qty": 0, "trips": set()})
+        c["qty"] += r["qty"]
+        c["trips"].add((r["store"], r["order_ref"]))
+    out = []
+    week = start
+    while week <= this_week:
+        c = counts.get(week)
+        out.append({"week": week.isoformat(), "qty": c["qty"] if c else 0, "trips": len(c["trips"]) if c else 0})
+        week += datetime.timedelta(weeks=1)
+    return out

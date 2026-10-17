@@ -1,6 +1,24 @@
 export type StoreProduct = { url: string; title: string };
 export type Products = Partial<Record<string, StoreProduct>>;
-export type CatalogItem = { id: number; name: string; category: string; custom: boolean; barcode: string; products: Products };
+export type CatalogItem = {
+  id: number;
+  name: string;
+  category: string;
+  custom: boolean;
+  barcode: string;
+  barcode_source: string;
+  products: Products;
+};
+export type Aisle = { id: number; name: string; items: number; fallback: boolean };
+export type FinderStatus = {
+  running: boolean;
+  total: number;
+  done: number;
+  waiting: number;
+  current: string | null;
+  error: string | null;
+  found: { catalog_id: number; name: string; barcode: string; product: string; source: string }[];
+};
 export type ListItem = {
   id: number;
   name: string;
@@ -23,6 +41,7 @@ export type ItemSummary = {
   last_bought: string;
   every_days: number | null;
   usual_qty: number;
+  next_expected: string | null;
   price: PriceSummary | null;
 };
 export type UsualItem = ItemSummary & { catalog_id: number; name: string; category: string; orders: number };
@@ -35,6 +54,7 @@ export type History = {
 export type ItemHistory = {
   item: { id: number; name: string };
   summary: ItemSummary;
+  weekly: { week: string; qty: number; trips: number }[];
   purchases: { store: string; bought_on: string; bought_at: string; bought_as: string; qty: number; unit_price: number | null; source: string }[];
 };
 export type ClubcardResult = {
@@ -92,6 +112,15 @@ export const api = {
     call<CatalogItem>(`/basket/${store}/link`, json("POST", { item_id: itemId, url })),
   forgetProduct: (catalogId: number, store: string) =>
     call<CatalogItem>(`/catalog/${catalogId}/products/${store}`, { method: "DELETE" }),
+  aisles: () => call<Aisle[]>("/aisles"),
+  addAisle: (name: string) => call<Aisle>("/aisles", json("POST", { name })),
+  renameAisle: (id: number, name: string) => call<Aisle>(`/aisles/${id}`, json("PATCH", { name })),
+  orderAisles: (ids: number[]) => call<Aisle[]>("/aisles/order", json("PUT", { ids })),
+  removeAisle: (id: number, moveTo: number | null) =>
+    call<Aisle[]>(`/aisles/${id}${moveTo ? `?move_to=${moveTo}` : ""}`, { method: "DELETE" }),
+  finder: () => call<FinderStatus>("/barcodes/find"),
+  findBarcodes: (retry = false) => call<FinderStatus>("/barcodes/find", json("POST", { retry })),
+  stopFinding: () => call<FinderStatus>("/barcodes/find/stop", { method: "POST" }),
   addCommon: (text: string, category: string) =>
     call<{ added: string[]; skipped: string[] }>("/catalog/bulk", json("POST", { text, category })),
 };

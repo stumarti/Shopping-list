@@ -1,18 +1,24 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, isBarcode, itemLinks, type CatalogItem, type Links, type ListItem, type Product } from "./api";
 import Manage from "./Manage";
+import Settings from "./Settings";
 import Shop from "./Shop";
 import Suggestions from "./Suggestions";
 
+// My list and Shop online are switched off for now (blank pages); flip these to bring them back.
+const SHOW_LIST = false;
+const SHOW_SHOP = false;
+
 const POLL_MS = 10_000;
 
-type Tab = "list" | "common" | "shop";
+type Tab = "list" | "common" | "shop" | "settings";
 const TABS: [Tab, string][] = [
   ["list", "My list"],
   ["shop", "Shop online"],
   ["common", "Common items"],
 ];
-const tabFromHash = (): Tab => TABS.find(([t]) => location.hash === `#${t}` && t !== "list")?.[0] ?? "list";
+const tabFromHash = (): Tab =>
+  location.hash === "#settings" ? "settings" : (TABS.find(([t]) => location.hash === `#${t}` && t !== "list")?.[0] ?? "list");
 
 const rank = (order: string[], c: string) => (order.includes(c) ? order.indexOf(c) : order.length);
 
@@ -149,7 +155,17 @@ export default function App() {
   return (
     <main>
       <header>
-        <h1>Shopping list</h1>
+        <div className="title-row">
+          <h1>Shopping list</h1>
+          <a
+            href="#settings"
+            className={`settings-link${tab === "settings" ? " on" : ""}`}
+            aria-current={tab === "settings" ? "page" : undefined}
+            onClick={(e) => (e.preventDefault(), go("settings"))}
+          >
+            Settings
+          </a>
+        </div>
         <p className="muted">
           {remaining === 0 ? "Nothing to buy yet" : `${remaining} to buy`}
           {ticked > 0 && ` · ${ticked} in the trolley`}
@@ -172,11 +188,13 @@ export default function App() {
         </div>
       )}
 
-      {tab === "common" ? (
+      {tab === "settings" ? (
+        <Settings categories={categories} run={run} />
+      ) : tab === "common" ? (
         <Manage catalog={catalog} categories={categories} links={links} groupBy={groupBy} run={run} />
       ) : tab === "shop" ? (
-        <Shop list={list} links={links} groupBy={groupBy} run={run} />
-      ) : (
+        SHOW_SHOP && <Shop list={list} links={links} groupBy={groupBy} run={run} />
+      ) : !SHOW_LIST ? null : (
         <>
           <section aria-labelledby="list-heading">
             <div className="section-head">

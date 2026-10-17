@@ -2,7 +2,9 @@
 
 A shared shopping list in one Docker container: a React page served by a FastAPI backend, with the list kept in SQLite. It comes with a browser helper that fills your Tesco or Dunnes basket.
 
-- Around 100 **common items**, grouped by aisle. Tap one to add it; tap again to add one more.
+- **No starter items**: your common items come from what you upload, import or add.
+- **Common items**, aisle by aisle. Tap one to see the weeks you bought it (a square per week, a column per month, filled when you bought it), when it's expected next, how often you buy it, what it costs, and every purchase; and to rename it, move it, set its barcode or delete it.
+- **Settings** (top right): upload your Tesco data, **Find barcodes** for your items in Open Food Facts, set up your **aisles** (rename, reorder, add, remove), and add common items in bulk.
 - **Type anything** that isn't there, pick its aisle, and it's added to your list and remembered as a common item.
 - Tick things off as you shop, change quantities, then **Clear ticked**.
 - **Barcodes**: type or paste a barcode (8 to 14 digits) and tap **Look up**. It's found in [Open Food Facts](https://world.openfoodfacts.org) (then Open Beauty, Products and Pet Food Facts), and remembered with the item.
@@ -106,7 +108,7 @@ This saves every product you've bought, with its store product already linked, s
 
 ### Import your Tesco Clubcard data
 
-Tesco will send you everything you've bought with your Clubcard, in store and online: on tesco.ie, **My account → Request your Tesco data**. When the email arrives, download the file and, in **Shop online → Past shopping**, press **Upload Tesco data file** (the `.json`, or the `.zip` as it came).
+Tesco will send you everything you've bought with your Clubcard, in store and online: on tesco.ie, **My account → Request your Tesco data**. When the email arrives, download the file and, in **Settings**, press **Upload Tesco data file** (the `.json`, or the `.zip` as it came).
 
 - **Nothing is thrown away.** The file is kept exactly as uploaded in `imports/` next to the database (`/data/imports/` in Docker), and every trip and line is stored as exported (tables `clubcard_trips` and `clubcard_items`, with the original JSON), including totals, savings, payment and lines that aren't groceries.
 - Every trip goes into your history with its exact time. Products bought on two or more trips become common items with a guessed aisle (`CLUBCARD_MIN_TRIPS` changes the two). Clothes (F&F), bags and gift cards are kept but left out of the figures.
@@ -122,6 +124,14 @@ Tesco will send you everything you've bought with your Clubcard, in store and on
 Items you've just bought, and ones you seem to have stopped buying, don't show. The thresholds are at the bottom of `backend/app/stats.py`.
 
 **You often buy** (in Shop online) shows, for each item, how many trips it was on, roughly how often you buy it (and **due** when it's about time), and what it costs now compared with the first time, e.g. *€2.25 ▲ 6c since 4 Apr*. Tap an item for every purchase: when, how many, the price each and where.
+
+### Find barcodes
+
+**Settings → Find barcodes** searches Open Food Facts (then Open Beauty and Open Products Facts) for each common item that has no barcode, by name, and assigns one only when the product clearly matches: nearly all of the item's words are in the product's brand, name and size, and the product doesn't add much else (Irish products win a tie). One-word names are skipped. Open Food Facts allows about 10 searches a minute, so it runs in the background on the server with a progress bar; you can leave the page. Each match can be undone (**Not this**), and an item you've set or cleared yourself is never changed.
+
+### Aisles
+
+**Settings → Aisles**: rename, reorder (↑ ↓), add and remove aisles. Renaming or removing one moves its items too (you pick where). *Other* is where unsorted things go, so it can be renamed but not removed. Aisles guessed for imported products follow your renames.
 
 ### When a store changes its site
 
@@ -155,12 +165,15 @@ web/
     catalog.py         the starter common items and aisle order
     lookup.py          barcode lookups, store link addresses and product-link checks
     clubcard.py        reads Tesco's Clubcard data export
+    finder.py          finds barcodes for items by name in Open Food Facts
     stats.py           how often each item is bought and what it costs
   frontend/src/
     App.tsx            the page and the My list tab
     Shop.tsx           the Shop online tab
     History.tsx        Past shopping: uploads, what you buy, how often, prices
-    Manage.tsx         the Common items tab
+    Manage.tsx         the Common items tab: items by aisle, and each item's history
+    WeeklyChart.tsx    the weeks-bought grid
+    Settings.tsx       upload, find barcodes, aisles, add items
     api.ts             calls to /api
   userscript/
     shopping-list.user.js   the browser helper (Tampermonkey / Userscripts)
@@ -188,13 +201,18 @@ web/
 | POST | `/api/history/tesco/clubcard` | Upload Tesco's Clubcard data file (raw `.json` or `.zip` body) |
 | GET | `/api/history` | Imported trips, newest first, and the items bought most often: trips, about how often, usual quantity, prices |
 | GET | `/api/history/items/{id}` | Every purchase of one common item: when, quantity, price each, where |
+| GET | `/api/aisles` | Aisles in order, with how many items each has |
+| POST / PATCH / DELETE | `/api/aisles`, `/api/aisles/{id}` | Add `{name}`, rename `{name}`, remove (`?move_to={id}`) |
+| PUT | `/api/aisles/order` | `{ids}` in the new order |
+| POST / GET | `/api/barcodes/find` | Start finding barcodes (`{retry}`) / progress and matches |
+| POST | `/api/barcodes/find/stop` | Stop |
 | GET | `/api/barcode/{code}` | Look a barcode up (your items first, then Open Food Facts) |
 | GET | `/api/links` | The Tesco, Dunnes and barcode directory link addresses |
 | GET | `/userscript/shopping-list.user.js` | The browser helper, pointed back at this server |
 
 Interactive API docs are at <http://localhost:8080/docs>.
 
-`catalog.py` only seeds a new, empty database; after that, use the Common items tab.
+`catalog.py` holds the starter aisles and the words used to guess a product's aisle.
 
 ## Develop without Docker
 
