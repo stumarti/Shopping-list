@@ -2807,3 +2807,28 @@ button.primary,
   display: flex;
   gap: 16px;
 }
+
+/* Kinds folded under their generic item */
+.kinds-toggle {
+  display: block;
+  width: 100%;
+  margin: -4px 0 4px;
+  padding: 2px 0 2px 14px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kinds-toggle .muted {
+  font-weight: 400;
+}
+
+.weekly .axis.year {
+  font-weight: 700;
+}

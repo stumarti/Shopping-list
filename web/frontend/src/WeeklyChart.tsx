@@ -6,7 +6,7 @@ type Cell = Week & { future: boolean };
 const ROWS = 4; // weeks per column: a steady 4, so a weekly or fortnightly habit lines up across the grid
 const CELL = 20;
 const GAP = 4;
-const TOP = 16; // room for the month names
+const TOP = 30; // room for the years and month names
 
 const day = (iso: string) => new Date(iso + "T12:00:00");
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -52,13 +52,21 @@ export default function WeeklyChart({ weeks, expected }: { weeks: Week[]; expect
   const at = (i: number) => ({ x: Math.floor(i / ROWS) * (CELL + GAP), y: TOP + (i % ROWS) * (CELL + GAP) });
 
   // Each column is named after the month of its top square, unless that's the same as the column before.
+  // Above them, the year: over the first column, and wherever a new year starts.
   const labels: { x: number; text: string }[] = [];
+  const yearLabels: { x: number; text: string }[] = [];
   let lastMonth = -1;
+  let lastYear = "";
   for (let col = 0; col < columns; col++) {
     const top = cells[col * ROWS];
     if (monthIndex(top.week) !== lastMonth) {
       labels.push({ x: col * (CELL + GAP), text: fmt(top.week, { month: "short" }).slice(0, 3) });
       lastMonth = monthIndex(top.week);
+    }
+    const year = top.week.slice(0, 4);
+    if (year !== lastYear) {
+      yearLabels.push({ x: col * (CELL + GAP), text: year });
+      lastYear = year;
     }
   }
 
@@ -70,6 +78,11 @@ export default function WeeklyChart({ weeks, expected }: { weeks: Week[]; expect
     <div className="weekly">
       <div className="weekly-scroll" ref={scroller} tabIndex={0} aria-label="Weekly history; scroll for older weeks">
         <svg width={width} height={height} role="img" aria-label={`Bought in ${boughtWeeks} of the last ${weeks.length} weeks.`}>
+          {yearLabels.map((l) => (
+            <text key={`y${l.x}`} x={l.x} y={11} className="axis year">
+              {l.text}
+            </text>
+          ))}
           {labels.map((l) => (
             <text key={l.x} x={l.x} y={TOP - 5} className="axis">
               {l.text}
