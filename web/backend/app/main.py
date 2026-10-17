@@ -54,6 +54,7 @@ class CatalogChange(BaseModel):
     carbs: float | None = Field(default=None, ge=0, le=10_000)
     fat: float | None = Field(default=None, ge=0, le=10_000)
     food_group: str | None = None  # a FOOD_GROUPS id, or "" to go back to the guess
+    exact: bool | None = None  # never swap it for a cheaper or in-stock alternative
     group: str | None = Field(default=None, max_length=80)  # the generic item this is a kind of; "" for none
     or_set: str | None = Field(default=None, max_length=80)  # the pick-one set it's in; "" for none
 
@@ -111,7 +112,7 @@ class SetChoice(BaseModel):
 
 # Which option to show first in a pick-one set: the most regular habit.
 BADGE_RANK = {"weekly": 0, "scheduled": 1, "unsure": 2, "added": 3}
-CATALOG_COLUMNS = "id, name, category, custom, barcode, barcode_source, kind, group_id, or_id, kcal, protein, carbs, fat, food_group"
+CATALOG_COLUMNS = "id, name, category, custom, barcode, barcode_source, kind, group_id, or_id, kcal, protein, carbs, fat, food_group, exact"
 MACROS = ("protein", "carbs", "fat")
 
 
@@ -195,6 +196,7 @@ def create_app(
             raise HTTPException(404, "That common item has gone")
         food_guess(rows)
         rows[0]["custom"] = bool(rows[0]["custom"])
+        rows[0]["exact"] = bool(rows[0]["exact"])
         rows[0]["trips"] = trip_counts().get(item_id, 0)
         return with_products(rows)[0]
 
@@ -450,6 +452,7 @@ def create_app(
         trips = trip_counts()
         for i in items:
             i["custom"] = bool(i["custom"])
+            i["exact"] = bool(i["exact"])
             i["trips"] = trips.get(i["id"], 0)
         return sort_items(with_products(items))
 

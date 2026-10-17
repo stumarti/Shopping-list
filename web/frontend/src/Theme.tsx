@@ -1,10 +1,11 @@
 import { useState } from "react";
+import Icon from "./Icon";
 
 type Theme = "auto" | "light" | "dark";
 const KEY = "shopping-list.theme";
 const NEXT: Record<Theme, Theme> = { auto: "light", light: "dark", dark: "auto" };
 const LABEL: Record<Theme, string> = { auto: "Auto", light: "Light", dark: "Dark" };
-const ICON: Record<Theme, string> = { auto: "◐", light: "☀", dark: "☾" };
+const ICON = { auto: "auto", light: "light", dark: "dark" } as const;
 
 function saved(): Theme {
   try {
@@ -32,7 +33,7 @@ export default function ThemeSwitch() {
   };
   return (
     <button className="theme-switch" onClick={pick} title={`Look: ${LABEL[theme]}. Tap for ${LABEL[NEXT[theme]]}.`} aria-label={`Light or dark: ${LABEL[theme]}. Tap to change.`}>
-      <span aria-hidden="true">{ICON[theme]}</span> {LABEL[theme]}
+      <Icon name={ICON[theme]} /> <span className="label">{LABEL[theme]}</span>
     </button>
   );
 }

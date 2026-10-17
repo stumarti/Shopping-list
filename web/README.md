@@ -9,6 +9,8 @@ A shared shopping list in one Docker container: a React page served by a FastAPI
 - **Calories and macros**: set calories, protein, carbs and fat **per pack** on common items and the next shop adds them up against a week for your household: adults (about 2,250 kcal a day) and children (about 1,600) entered separately, with macros against the reference intakes scaled to that. It also shows **a usual week** from your history, counting only weeks you shopped. A generic item without its own figures uses the average of its kinds; a pick-one set not yet picked shows the range. The household, macros and a **food pyramid** (how many things on this shop sit on each shelf; each item's food group is guessed from its name and aisle, and you can change it) are collapsed until you open them.
 - **Your typical shop** (beside the next shop): products and spend per shop in each aisle, averaged over your trips in the last year.
 - **Light or dark**: the switch at the top right goes Auto (follows the device), Light, Dark.
+- **On your phone in the shop**: the pages move to a bar along the bottom, and the aisle chips above the list stay at the top as you scroll (each shows how much is left in that aisle). Tap the circle beside an item when it's in the trolley: it drops to **In the trolley** at the bottom, and a bar shows how far through you are. Ticks are kept on that phone for this shop's date, and start fresh for the next shop.
+- **Icons** are [Material Symbols](https://fonts.google.com/icons) (rounded), bundled in the page so it works without the internet.
 - **No starter items**: your common items come from what you upload, import or add.
 - **Common items**, aisle by aisle. Tap one to see the weeks you bought it (a square per week, four to a column so habits line up, shaded by month, filled when you bought it, hollow when you didn't shop at all that week; it opens on the latest weeks, scroll back for older ones), its price over time, what you've spent on it, when it's expected next and every purchase; and to rename it, move it, set its barcode, calories, macros and food group, or delete it.
 - **Spending and prices** (top of Common items): what you've spent, a shop and a week (weeks you didn't shop don't count), month by month, and how prices of the things you buy again and again have moved, with what's gone up and down most.
@@ -18,7 +20,7 @@ A shared shopping list in one Docker container: a React page served by a FastAPI
 - **Barcodes**: type or paste a barcode (8 to 14 digits) and tap **Look up**. It's found in [Open Food Facts](https://world.openfoodfacts.org) (then Open Beauty, Products and Pet Food Facts), and remembered with the item.
 - **Check the shops**: every item links to its search results on [Tesco](https://www.tesco.ie/shop/en-IE/search?query=milk) and [Dunnes](https://www.dunnesstoresgrocery.com/results?q=milk), and to its barcode page on Open Food Facts.
 - **Common items** tab: build your own list of usual items. Paste many at once (one per line), rename them, move them between aisles, add barcodes, or delete the ones you never buy.
-- **Shop online** tab: your next shop on the left, with how it works and a prompt to copy into **Claude in Chrome** so it fills your basket (it's told to stop at a filled basket, never check out, pay or touch your slot). The store's site is on the right; most stores won't show inside another site, so **Open in a new tab** is always there. Tap an item to look it up, and **Save link** to paste its product address so it's exact next time. The browser helper (below) still works too.
+- **Shop online** tab: your next shop on the left; tap an item to look it up on the store's site, **Save link** to paste its product address so it's exact next time, and tick **Never swap** on anything you want exactly as it is. On the right, a prompt to copy into **Claude in Chrome** on your signed-in store tab, which fills your basket and stops there (it's told never to check out, pay or touch your slot). Tick **Look for cheaper options** to have it compare like-for-like products by unit price (€/kg, €/L): **Suggest only** adds your usual items and lists what's cheaper, **Swap automatically** adds the cheaper one and tells you what it swapped, and either way it only counts savings above the % and cents you set. Never swap items are left alone, even when out of stock. The browser helper (below) still works too.
 - Anyone on your network who opens the page sees the same list. It refreshes every 10 seconds.
 
 ## Run it with Docker Compose
@@ -177,12 +179,13 @@ web/
     stats.py           how often each item is bought and what it costs
   frontend/src/
     App.tsx            the page and the My list tab
-    ShopOnline.tsx     the Shop online tab: your list, the Claude in Chrome prompt, the store
+    ShopOnline.tsx     the Shop online tab: your list and the Claude in Chrome prompt, with cheaper options
     Shop.tsx           the older basket-helper page (not shown for now)
     NextShop.tsx       the Next shop tab: the list, maybes, aisles, calories, macros, food pyramid, typical shop
     Spending.tsx       spending and price changes, on Common items
     PriceChart.tsx     an item's price over time
     Theme.tsx          the light / dark switch
+    Icon.tsx           Material Symbols icons, bundled from @material-symbols/svg-400
     History.tsx        Past shopping: uploads, what you buy, how often, prices
     Manage.tsx         the Common items tab: items (most bought first or by aisle), kinds, sets, each item's history
     Order.tsx          the Most bought / By aisle switch
@@ -200,7 +203,7 @@ web/
 | GET | `/api/catalog` | Common items in aisle order, with their saved store products |
 | POST | `/api/catalog` | Add a common item `{name, category, barcode}` |
 | POST | `/api/catalog/bulk` | Add many `{text, category}`, one per line; returns what was added and skipped |
-| PATCH | `/api/catalog/{id}` | Change `{name, category, barcode, kcal, protein, carbs, fat, food_group}`; `group` puts it under a generic item by name (`""` takes it out), `or_set` puts it in a pick-one set |
+| PATCH | `/api/catalog/{id}` | Change `{name, category, barcode, kcal, protein, carbs, fat, food_group, exact}` (`exact`: never swap it); `group` puts it under a generic item by name (`""` takes it out), `or_set` puts it in a pick-one set |
 | DELETE | `/api/catalog/{id}` | Forget a common item |
 | POST | `/api/catalog/clear` | Remove all common items (the list and history stay) |
 | POST | `/api/catalog/rebuild` | Make common items again from the purchase history |

@@ -1674,26 +1674,28 @@ main.wide {
   font-size: 0.8rem;
 }
 
-/* Shop online: your list and the prompt on the left, the store on the right */
+/* Shop online: your list on the left, the prompt and cheaper options on the right */
 .online-layout {
   display: grid;
   gap: 0 24px;
 }
 
 .online-main,
-.online-store {
+.online-side {
   min-width: 0;
 }
 
 @media (min-width: 880px) {
   .online-layout {
-    grid-template-columns: minmax(300px, 1fr) minmax(0, 1.6fr);
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr);
     align-items: start;
   }
 
-  .online-store {
+  .online-side {
     position: sticky;
     top: 8px;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
   }
 }
 
@@ -1765,38 +1767,6 @@ textarea.prompt {
   resize: vertical;
 }
 
-.store-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-  font-size: 0.85rem;
-}
-
-.store-url {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.store-bar a.link {
-  color: var(--accent);
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.online-store iframe {
-  display: block;
-  width: 100%;
-  height: calc(100vh - 150px);
-  min-height: 420px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-}
 
 .online-items .save-link {
   margin-left: 8px;
@@ -2178,4 +2148,365 @@ textarea.prompt {
 .kcal {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.online-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+
+.online-name {
+  min-width: 0;
+}
+
+.online-actions {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 0.8rem;
+}
+
+.online-items .save-link {
+  margin-left: 0;
+}
+
+.online-items .exact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.store-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.button-link {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.button-link:hover {
+  background: var(--accent-soft);
+}
+
+.cheaper {
+  margin: 10px 0 0;
+  padding: 8px 12px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.cheaper legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.cheaper legend label,
+.cheaper .choice label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.cheaper .choice {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.cheaper .saving {
+  margin: 10px 0 0;
+}
+
+.cheaper .saving input {
+  width: 56px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px 6px;
+}
+
+.cheaper .hint {
+  margin-top: 6px;
+}
+
+.prompt-head {
+  margin-top: 14px;
+}
+
+.prompt-head h3 {
+  margin: 0;
+}
+
+.edit-fields label.check {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* Material icons */
+.icon {
+  display: inline-block;
+  flex: none;
+  vertical-align: -0.22em;
+}
+
+button.primary,
+.tabs button,
+.settings-link,
+.theme-switch,
+.add-one,
+.remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.shop-when .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Ticking things off as they go in the trolley */
+.got-toggle {
+  flex: none;
+  display: inline-flex;
+  padding: 4px;
+  margin-left: -4px;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.got-toggle:hover {
+  color: var(--accent);
+}
+
+.got-toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.shop-items li.got .shop-item-name {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.shop-items li.got .shop-item-meta,
+.shop-items li.got .options {
+  display: none;
+}
+
+.trolley {
+  margin-top: 18px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.trolley .part-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+}
+
+.trolley-meter {
+  height: 4px;
+  margin: 6px 0 2px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.trolley-meter span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+
+/* Aisle chips: jump to one aisle */
+.aisle-chips {
+  display: flex;
+  gap: 6px;
+  margin: 10px -4px 4px;
+  padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.aisle-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.aisle-chips button {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.aisle-chips button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.aisle-chips .n {
+  margin-left: 2px;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.badges-help {
+  margin-top: 12px;
+}
+
+.badges-help summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.empty .icon {
+  color: var(--accent);
+}
+
+/* Phones: a slim header, the pages as a bar along the bottom, bigger tap targets */
+@media (max-width: 600px) {
+  main {
+    padding: 12px 12px calc(84px + env(safe-area-inset-bottom));
+  }
+
+  h1 {
+    font-size: 1.3rem;
+  }
+
+  .title-row {
+    align-items: center;
+  }
+
+  .header-links {
+    gap: 4px;
+  }
+
+  .header-links .label {
+    display: none;
+  }
+
+  .settings-link,
+  .theme-switch {
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+  }
+
+  .tabs {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 20;
+    margin: 0;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border: none;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--surface);
+    box-shadow: 0 -2px 12px rgb(0 0 0 / 0.06);
+  }
+
+  .tabs button {
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 2px;
+    font-size: 0.72rem;
+  }
+
+  .tabs button .icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  section {
+    padding: 14px;
+  }
+
+  .shop-when h2 {
+    font-size: 1.15rem;
+  }
+
+  .shop-when p:last-child {
+    font-size: 0.85rem;
+  }
+
+  /* The aisle chips stay at the top while you scroll the list. */
+  .aisle-chips {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    margin: 8px -14px 4px;
+    padding: 8px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .shop-items li {
+    padding: 9px 0;
+    gap: 6px;
+  }
+
+  .shop-item-name {
+    font-size: 1.02rem;
+  }
+
+  .shop-item-meta .meta-extra {
+    display: none;
+  }
+
+  .shop-items .remove {
+    width: 40px;
+    height: 40px;
+  }
+
+  .shop-add button.primary .label {
+    display: none;
+  }
+
+  .shop-add button.primary {
+    padding: 10px 14px;
+  }
+}
+
+.button-link,
+.save-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }

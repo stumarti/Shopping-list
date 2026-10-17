@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, type CatalogItem, type FoodGroup, type NextShop as Plan, type ShopItem, type TypicalShop } from "./api";
+import Icon from "./Icon";
 import { byTrips, OrderToggle, useOrder } from "./Order";
 
 type Props = {
@@ -13,6 +14,7 @@ type Props = {
 const KCAL_ADULT = 2250;
 const KCAL_CHILD = 1600;
 const ADULTS_KEY = "shopping-list.people";
+const TROLLEY_KEY = "shopping-list.trolley";
 const CHILDREN_KEY = "shopping-list.children";
 
 const day = (iso: string) => new Date(iso + "T12:00:00");
@@ -55,6 +57,35 @@ function useCount(storageKey: string, fallback: number, min: number): [number, (
   return [n, set];
 }
 
+/** What's in the trolley while you shop: ticked items, kept on this device for this shop's date only. */
+function useTrolley(shopDate: string): [Set<string>, (key: string) => void, () => void] {
+  const read = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(TROLLEY_KEY) ?? "null");
+      return new Set<string>(saved?.date === shopDate ? saved.keys : []);
+    } catch {
+      return new Set<string>();
+    }
+  };
+  const [got, setGot] = useState(read);
+  useEffect(() => setGot(read()), [shopDate]);
+  const save = (next: Set<string>) => {
+    setGot(next);
+    try {
+      localStorage.setItem(TROLLEY_KEY, JSON.stringify({ date: shopDate, keys: [...next] }));
+    } catch {
+      // Not remembered on this device; ticks still show until you leave the page.
+    }
+  };
+  const toggle = (key: string) => {
+    const next = new Set(got);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    save(next);
+  };
+  return [got, toggle, () => save(new Set())];
+}
+
 /** The next shop: when it's likely to be, everything it needs (most bought first, or aisle by aisle), what it
  * comes to in calories, and what a typical shop looks like. Tap an aisle to see just that aisle: what you'll
  * need, what you've added, the maybes and everything else you buy there. */
@@ -68,6 +99,7 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
   const [adults, setAdults] = useCount(ADULTS_KEY, 2, 1);
   const [children, setChildren] = useCount(CHILDREN_KEY, 0, 0);
   const [foodGroups, setFoodGroups] = useState<FoodGroup[]>([]);
+  const [got, toggleGot, emptyTrolley] = useTrolley(plan?.shop?.date ?? "anytime");
   useEffect(() => {
     api.foodGroups().then(setFoodGroups, () => setFoodGroups([]));
   }, []);
@@ -113,7 +145,7 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
     void addItem(name, aisle ?? "");
   };
 
-  const pickAisle = (name: string) => {
+  const pickAisle = (name: string | null) => {
     setAisle(aisle === name ? null : name);
     document.getElementById("shop-items")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -121,8 +153,14 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
   if (!plan) return <section><p className="muted">Loading…</p></section>;
 
   const here = <T extends { category: string }>(xs: T[]) => (aisle ? xs.filter((x) => x.category === aisle) : xs);
-  const must = byTrips(here(plan.items).filter((i) => i.badge !== "added"));
-  const added = byTrips(here(plan.items).filter((i) => i.badge === "added"));
+  // Ticked off in the shop: out of the list, into the trolley at the bottom.
+  const toGet = plan.items.filter((i) => !got.has(key(i)));
+  const inTrolley = here(plan.items).filter((i) => got.has(key(i)));
+  const gotCount = plan.items.length - toGet.length;
+  const must = byTrips(here(toGet).filter((i) => i.badge !== "added"));
+  const added = byTrips(here(toGet).filter((i) => i.badge === "added"));
+  // Aisle chips: every aisle with something to get or a maybe, and how much is left in it.
+  const chips = groupBy([...plan.items, ...plan.maybe]).map(([a]) => [a, toGet.filter((i) => i.category === a).length] as const);
   const maybes = byTrips(here(plan.maybe));
   // Everything else you buy in this aisle: common items not already on the shop in some way.
   const taken = new Set<string>();
@@ -141,14 +179,16 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
       i={i}
       showAisle={order === "often" && !aisle}
       onChoose={(o) => choose(i, o)}
+      got={maybe ? undefined : got.has(key(i))}
+      onGot={maybe ? undefined : () => toggleGot(key(i))}
       action={
         maybe ? (
           <button className="add-one" aria-label={`Add ${i.name} to this shop`} title="Add to this shop" onClick={() => addItem(i.name, i.category, i.qty)}>
-            + Add
+            <Icon name="add" size={18} /> Add
           </button>
         ) : (
           <button className="remove" aria-label={`Remove ${i.name} from this shop`} title="Remove from this shop" onClick={() => remove(i)}>
-            ×
+            <Icon name="close" />
           </button>
         )
       }
@@ -157,7 +197,7 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
 
   // Aisle by aisle: in each, what you'll need first, then what you added.
   const groups: [string, ShopItem[]][] =
-    order === "aisle" ? groupBy(plan.items).map(([a, items]) => [a, ranked(items)]) : [["", ranked(plan.items)]];
+    order === "aisle" ? groupBy(toGet).map(([a, items]) => [a, ranked(items)]) : [["", ranked(toGet)]];
   const maybeGroups: [string, ShopItem[]][] = order === "aisle" ? groupBy(plan.maybe).map(([a, items]) => [a, byTrips(items)]) : [["", byTrips(plan.maybe)]];
   const aisleHeading = (a: string) => (
     <h3>
@@ -173,7 +213,9 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
         <section aria-labelledby="shop-when" className="shop-when">
           {plan.shop ? (
             <>
-              <p className="muted eyebrow">Next shop</p>
+              <p className="muted eyebrow">
+                <Icon name="event" size={16} /> Next shop
+              </p>
               <h2 id="shop-when">
                 {day(plan.shop.date).toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "long" })}{" "}
                 <span className="muted">({when(plan.shop.date)})</span>
@@ -205,9 +247,27 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
           </div>
           <p className="muted">
             {aisle
-              ? `${plural(must.length + added.length, "item", "items")} on this shop · ${plural(maybes.length, "maybe", "maybes")} · ${others.length} more you've bought here`
+              ? `${plural(must.length + added.length, "item", "items")} to get · ${plural(maybes.length, "maybe", "maybes")} · ${others.length} more you've bought here`
               : `${plural(plan.items.length, "item", "items")}${plan.maybe.length ? ` · ${plural(plan.maybe.length, "maybe", "maybes")} below` : ""}`}
+            {gotCount > 0 && ` · ${gotCount} in the trolley`}
           </p>
+          {plan.items.length > 0 && (
+            <div className="trolley-meter" aria-hidden="true">
+              <span style={{ width: `${(gotCount / plan.items.length) * 100}%` }} />
+            </div>
+          )}
+          {chips.length > 1 && (
+            <nav className="aisle-chips" aria-label="Aisles">
+              <button className={aisle === null ? "on" : ""} aria-pressed={aisle === null} onClick={() => pickAisle(null)}>
+                All <span className="n">{toGet.length}</span>
+              </button>
+              {chips.map(([a, n]) => (
+                <button key={a} className={aisle === a ? "on" : ""} aria-pressed={aisle === a} onClick={() => pickAisle(a)}>
+                  {a} <span className="n">{n}</span>
+                </button>
+              ))}
+            </nav>
+          )}
           {undo && (
             <p className="undo" role="status">
               Removed {undo.name}.{" "}
@@ -247,6 +307,11 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
           ) : (
             <>
               {plan.items.length === 0 && <p className="empty">Nothing yet. Add anything you need below.</p>}
+              {plan.items.length > 0 && toGet.length === 0 && (
+                <p className="empty">
+                  <Icon name="cartFill" /> Everything's in the trolley.
+                </p>
+              )}
               {groups.map(([a, items]) => (
                 <div key={a || "all"} className="group">
                   {a && aisleHeading(a)}
@@ -264,10 +329,24 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
               aria-label="Add an item"
               maxLength={80}
             />
-            <button type="submit" className="primary" disabled={!text.trim()}>
-              Add
+            <button type="submit" className="primary" disabled={!text.trim()} aria-label="Add">
+              <Icon name="add" /> <span className="label">Add</span>
             </button>
           </form>
+
+          {inTrolley.length > 0 && (
+            <div className="trolley">
+              <div className="section-head">
+                <h3 className="part-title">
+                  <Icon name="cart" size={16} /> In the trolley ({inTrolley.length})
+                </h3>
+                <button className="link" onClick={emptyTrolley}>
+                  Untick all
+                </button>
+              </div>
+              <ul className="shop-items">{byTrips(inTrolley).map((i) => row(i))}</ul>
+            </div>
+          )}
 
           {!aisle && plan.maybe.length > 0 && (
             <div className="maybes">
@@ -297,12 +376,16 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
               </ul>
             </details>
           )}
+          <details className="hint badges-help">
+            <summary className="muted">What the badges mean</summary>
           <p className="muted hint">
             <span className="badge weekly">Weekly</span> and <span className="badge scheduled">Every 2 weeks</span> are things you buy like
             clockwork. <span className="badge unsure">Not sure</span> means you buy it unevenly or now and then, so it waits under Maybe
             until you add it. <span className="badge pick">Pick one</span> is a set where one will do this week: tap the one you'll get.
-            Removing something only takes it off this shop. Tap an aisle to see just that aisle.
+            Removing something only takes it off this shop. Tap an aisle to see just that aisle, and tick things off as they go in the
+            trolley.
           </p>
+          </details>
         </section>
       </div>
 
@@ -341,9 +424,34 @@ function Part({ title, note, empty, children }: { title: string; note?: string; 
   );
 }
 
-function ShopRow({ i, showAisle, onChoose, action }: { i: ShopItem; showAisle: boolean; onChoose: (optionId: number) => void; action: ReactNode }) {
+function ShopRow({
+  i,
+  showAisle,
+  onChoose,
+  got,
+  onGot,
+  action,
+}: {
+  i: ShopItem;
+  showAisle: boolean;
+  onChoose: (optionId: number) => void;
+  got?: boolean;
+  onGot?: () => void;
+  action: ReactNode;
+}) {
   return (
-    <li className={i.badge}>
+    <li className={`${i.badge}${got ? " got" : ""}`}>
+      {onGot && (
+        <button
+          className="got-toggle"
+          aria-pressed={got}
+          aria-label={got ? `Take ${i.name} out of the trolley` : `${i.name} is in the trolley`}
+          title={got ? "In the trolley: tap to untick" : "Tick when it's in the trolley"}
+          onClick={onGot}
+        >
+          <Icon name={got ? "checked" : "unchecked"} size={24} />
+        </button>
+      )}
       <div className="shop-item-main">
         <span className="shop-item-name">
           {i.name}
@@ -353,8 +461,8 @@ function ShopRow({ i, showAisle, onChoose, action }: { i: ShopItem; showAisle: b
           {i.kind === "or" && i.chosen === null && <span className="badge pick">Pick one</span>}
           <span className={`badge ${i.badge}`}>{i.label}</span>
           <span className="muted">{i.detail}</span>
-          {i.kcal_low !== null && i.kcal_high !== null && <span className="muted">≈ {range(i.kcal_low * i.qty, i.kcal_high * i.qty)} kcal</span>}
-          {showAisle && <span className="muted">· {i.category}</span>}
+          {i.kcal_low !== null && i.kcal_high !== null && <span className="muted meta-extra">≈ {range(i.kcal_low * i.qty, i.kcal_high * i.qty)} kcal</span>}
+          {showAisle && <span className="muted meta-extra">· {i.category}</span>}
         </span>
         {i.options && (
           <span className="options" role="group" aria-label={`Pick one for ${i.name}`}>

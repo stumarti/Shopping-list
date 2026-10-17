@@ -160,6 +160,10 @@ MIGRATIONS = [
     ALTER TABLE catalog ADD COLUMN fat REAL;
     ALTER TABLE catalog ADD COLUMN food_group TEXT NOT NULL DEFAULT '';
     """,
+    # 10: items you want exactly as they are: never swapped for a cheaper or in-stock alternative
+    """
+    ALTER TABLE catalog ADD COLUMN exact INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 FALLBACK_AISLE = "Other"
