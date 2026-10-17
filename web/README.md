@@ -113,7 +113,15 @@ Tesco will send you everything you've bought with your Clubcard, in store and on
 - Upload a newer export any time: trips already imported are skipped.
 - The export has no product links, so it can't fill a basket by itself. **Import this order** on a few recent online orders saves those.
 
-**You often buy** then shows, for each item, how many trips it was on, roughly how often you buy it (and **due** when it's about time), and what it costs now compared with the first time, e.g. *€2.25 ▲ 6c since 4 Apr*. Tap an item for every purchase: when, how many, the price each and where.
+**My list** then shows **From your past shopping**, in three groups:
+
+- **You will want**: things you buy at a steady pace (at least every six weeks) that are due now, e.g. *About every week, last 7 days ago*. **Add all** puts them on the list in your usual quantities.
+- **You might want**: steady items coming up soon, and items you buy regularly but unevenly that are about due.
+- **Extras**: things you buy now and then (two or more times in the last year, not on a regular pace).
+
+Items you've just bought, and ones you seem to have stopped buying, don't show. The thresholds are at the bottom of `backend/app/stats.py`.
+
+**You often buy** (in Shop online) shows, for each item, how many trips it was on, roughly how often you buy it (and **due** when it's about time), and what it costs now compared with the first time, e.g. *€2.25 ▲ 6c since 4 Apr*. Tap an item for every purchase: when, how many, the price each and where.
 
 ### When a store changes its site
 

@@ -25,9 +25,12 @@ export type ItemSummary = {
   usual_qty: number;
   price: PriceSummary | null;
 };
+export type UsualItem = ItemSummary & { catalog_id: number; name: string; category: string; orders: number };
+export type Suggestion = UsualItem & { reason: string; qty: number };
 export type History = {
   orders: { store: string; order_ref: string; bought_on: string; products: number; units: number; source: string }[];
-  usual: (ItemSummary & { catalog_id: number; name: string; category: string; orders: number })[];
+  usual: UsualItem[];
+  suggestions: { will: Suggestion[]; might: Suggestion[]; extras: Suggestion[] };
 };
 export type ItemHistory = {
   item: { id: number; name: string };
