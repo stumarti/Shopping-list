@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Icon from "./Icon";
-import { api, fillLink, type CatalogItem, type Links, type NextShop, type ShopItem } from "./api";
+import { api, fillLink, type BasketCheck, type CatalogItem, type Links, type NextShop, type ShopItem } from "./api";
+import { BeforeYouOrder, CheckBasket, StatusMark, type BasketStatus } from "./BasketCheck";
 
 type Props = {
   listSize: number;
@@ -99,6 +100,18 @@ ${
     ? `At the end, tell me: what you added, any out-of-stock swaps, anything you couldn't find, and the basket total. Then give me a table of cheaper options: my item, the cheaper option, both unit prices, and the saving per pack${cheaper.swap ? " (these are the swaps you made)" : ""}. End with the total ${cheaper.swap ? "I saved" : "I'd save if I took them all"}.${cheaper.swap ? "" : " I'll tell you which to swap."}`
     : "At the end, tell me: what you added, any swaps, anything you couldn't find, and the basket total.";
 
+  const resultsPart = `
+
+Last of all, so my list app can check nothing was missed, end your reply with this block. Put in one entry for every item on my list, using my item names exactly as written above (for a "one of" item, use the name of the one you picked). status is "added", "swapped" (you added something else instead) or "missing" (nothing added). url is the product page of what you added.
+
+\`\`\`json
+{"results": [
+  {"item": "my item", "status": "added", "product": "product name on the site", "url": "https://…", "qty": 1},
+  {"item": "my item", "status": "swapped", "product": "what you added instead", "url": "https://…", "qty": 1, "note": "why"},
+  {"item": "my item", "status": "missing", "note": "why"}
+], "total": "€0.00"}
+\`\`\``;
+
   return `Please fill my ${store.name} online basket with my shopping list. I'm signed in to ${store.home} in this browser.
 
 My list:
@@ -116,7 +129,7 @@ Rules:
 - Don't accept any pop-ups that sign me up to anything.
 - If anything asks for payment or a password, stop and tell me.
 
-${report}`;
+${report}${resultsPart}`;
 }
 
 /**
@@ -132,10 +145,15 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
   const [pasted, setPasted] = useState("");
   // Never swap as just ticked, shown straight away while it saves.
   const [exactNow, setExactNow] = useState<Record<number, boolean>>({});
+  const [check, setCheck] = useState<BasketCheck>(null);
 
+  const loadPlan = () => api.nextShop().then(setPlan, () => setPlan(null));
   useEffect(() => {
-    api.nextShop().then(setPlan, () => setPlan(null));
+    void loadPlan();
   }, [listSize]);
+  useEffect(() => {
+    api.basketCheck(storeId).then(setCheck, () => setCheck(null));
+  }, [storeId]);
 
   const stores = links?.stores ?? [];
   const store = stores.find((s) => s.id === storeId) ?? stores[0];
@@ -160,6 +178,15 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
   };
   const text = prompt(store, items, cheaper);
   const saved = items.filter((l) => l.url).length;
+  // What Claude said it did with each item, from the last check of this shop's basket.
+  const current = check && (!plan.shop || check.shop_date === plan.shop.date) ? check : null;
+  // (A pick-one set's result comes back under the set's name, whichever option was picked.)
+  const statusOf = (l: Line): BasketStatus | null => {
+    if (!current) return null;
+    const r = current.items.find((i) => i.item.toLowerCase() === l.name.toLowerCase());
+    if (r) return r.status;
+    return current.unreported.some((n) => n.toLowerCase() === l.name.toLowerCase()) ? "unreported" : null;
+  };
   const exactCount = items.filter((l) => l.exact).length;
 
   const saveLink = async (e: FormEvent, l: Line) => {
@@ -220,6 +247,7 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
                           ✓
                         </span>
                       )}
+                      {statusOf(l) && <StatusMark status={statusOf(l)!} />}
                     </span>
                     {l.catalogId !== null && (
                       <span className="online-actions">
@@ -306,6 +334,8 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
           </p>
         </details>
 
+        <BeforeYouOrder plan={plan} refresh={() => void loadPlan()} run={run} />
+
         <fieldset className="cheaper">
           <legend>
             <label>
@@ -365,6 +395,8 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
         </div>
         <textarea id="claude-prompt" className="prompt" readOnly value={text} rows={14} aria-label="Prompt for Claude in Chrome" onFocus={(e) => e.target.select()} />
         <p className="muted hint">Paste this into Claude in Chrome on your {store.name} tab. It stops at a filled basket: you check out yourself.</p>
+
+        <CheckBasket store={store} check={check} setCheck={setCheck} run={run} />
       </section>
     </div>
   );

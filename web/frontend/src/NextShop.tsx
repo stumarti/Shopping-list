@@ -1,7 +1,12 @@
-import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, type CatalogItem, type FoodGroup, type NextShop as Plan, type ShopItem, type TypicalShop } from "./api";
 import Icon from "./Icon";
 import { byTrips, OrderToggle, useOrder } from "./Order";
+
+const Scanner = lazy(() => import("./Scanner"));
+
+/** What a scan found: an item on this shop (ticked), or something to add. */
+type Scanned = { code: string; message: string; add?: { name: string; category: string } };
 
 type Props = {
   listSize: number;
@@ -99,6 +104,9 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
   const [adults, setAdults] = useCount(ADULTS_KEY, 2, 1);
   const [children, setChildren] = useCount(CHILDREN_KEY, 0, 0);
   const [foodGroups, setFoodGroups] = useState<FoodGroup[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState<Scanned | null>(null);
+  const [scanName, setScanName] = useState("");
   const [got, toggleGot, emptyTrolley] = useTrolley(plan?.shop?.date ?? "anytime");
   useEffect(() => {
     api.foodGroups().then(setFoodGroups, () => setFoodGroups([]));
@@ -143,6 +151,52 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
     if (!name) return;
     setText("");
     void addItem(name, aisle ?? "");
+  };
+
+  // A scanned barcode: tick it off if it's on this shop, otherwise offer to add it.
+  const onScanned = async (code: string) => {
+    setScanning(false);
+    if (!plan) return;
+    const known = catalog.find((c) => c.barcode === code);
+    if (known) {
+      const root = known.group_id ?? known.id;
+      const item = plan.items.find(
+        (i) =>
+          i.catalog_id === root ||
+          i.catalog_id === known.id ||
+          i.options?.some((o) => o.catalog_id === known.id) ||
+          i.name.toLowerCase() === known.name.toLowerCase(),
+      );
+      if (item) {
+        if (!got.has(key(item))) toggleGot(key(item));
+        setScanned({ code, message: `${item.name} is in the trolley.` });
+        return;
+      }
+      setScanName(known.name);
+      setScanned({ code, message: `${known.name} isn't on this shop.`, add: { name: known.name, category: known.category } });
+      return;
+    }
+    try {
+      const p = await api.barcode(code);
+      const brand = p.brand && !p.name.toLowerCase().includes(p.brand.toLowerCase()) ? `${p.brand} ` : "";
+      const name = `${brand}${p.name}${p.quantity ? ` ${p.quantity}` : ""}`.trim();
+      setScanName(name);
+      setScanned({ code, message: name ? `Found in ${p.source === "yours" ? "your items" : "Open Food Facts"}.` : "Found it, but it has no name.", add: { name, category: p.category } });
+    } catch {
+      setScanName("");
+      setScanned({ code, message: `${code} isn't in Open Food Facts. Name it to add it.`, add: { name: "", category: aisle ?? "" } });
+    }
+  };
+
+  const addScanned = (tick: boolean) => {
+    if (!scanned?.add || !scanName.trim()) return;
+    const { code } = scanned;
+    void run(async () => {
+      const item = await api.add(scanName.trim(), scanned.add!.category, 1, code);
+      await load();
+      if (tick) toggleGot(`l${item.id}`);
+      setScanned({ code, message: tick ? `${item.name} added, and in the trolley.` : `${item.name} added.` });
+    });
   };
 
   const pickAisle = (name: string | null) => {
@@ -332,7 +386,42 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
             <button type="submit" className="primary" disabled={!text.trim()} aria-label="Add">
               <Icon name="add" /> <span className="label">Add</span>
             </button>
+            <button type="button" className="scan-button" onClick={() => (setScanned(null), setScanning(true))} aria-label="Scan a barcode" title="Scan a barcode">
+              <Icon name="scan" size={22} />
+            </button>
           </form>
+
+          {scanned && (
+            <div className="scan-result" role="status">
+              <p>
+                <Icon name={scanned.add ? "scan" : "checked"} size={18} /> {scanned.message}
+              </p>
+              {scanned.add && (
+                <div className="add-form">
+                  <input value={scanName} onChange={(e) => setScanName(e.target.value)} placeholder="What is it?" aria-label="Name for the scanned item" maxLength={80} />
+                  <button className="primary" disabled={!scanName.trim()} onClick={() => addScanned(false)}>
+                    Add
+                  </button>
+                  <button className="link" disabled={!scanName.trim()} onClick={() => addScanned(true)}>
+                    Add, in the trolley
+                  </button>
+                </div>
+              )}
+              <span className="scan-result-actions">
+                <button className="link" onClick={() => (setScanned(null), setScanning(true))}>
+                  Scan another
+                </button>
+                <button className="link" onClick={() => setScanned(null)}>
+                  Done
+                </button>
+              </span>
+            </div>
+          )}
+          {scanning && (
+            <Suspense fallback={null}>
+              <Scanner title="Scan a barcode" onCode={(c) => void onScanned(c)} onClose={() => setScanning(false)} />
+            </Suspense>
+          )}
 
           {inTrolley.length > 0 && (
             <div className="trolley">

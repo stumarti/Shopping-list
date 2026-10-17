@@ -1,9 +1,12 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useState } from "react";
 import { api, itemLinks, type CatalogItem, type CommonChange, type FoodGroup, type ItemHistory, type Links } from "./api";
 import { byTrips, OrderToggle, useOrder } from "./Order";
 import PriceChart from "./PriceChart";
 import Spending from "./Spending";
 import WeeklyChart from "./WeeklyChart";
+import Icon from "./Icon";
+
+const Scanner = lazy(() => import("./Scanner"));
 
 type Props = {
   catalog: CatalogItem[];
@@ -24,6 +27,14 @@ const daysFromToday = (iso: string) => Math.round((day(iso).getTime() - day(new 
 export default function Manage({ catalog, categories, links, groupBy, run }: Props) {
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState<number | null>(null);
+  // Generic items whose kinds are showing; kinds are folded away until you open them.
+  const [unfolded, setUnfolded] = useState<Set<number>>(new Set());
+  const toggleKinds = (id: number) => {
+    const next = new Set(unfolded);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setUnfolded(next);
+  };
   const [order, setOrder] = useOrder();
   const [foodGroups, setFoodGroups] = useState<FoodGroup[]>([]);
   useEffect(() => {
@@ -39,6 +50,8 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
   const groups: [string, CatalogItem[]][] =
     order === "aisle" ? groupBy(shown).map(([aisle, items]) => [aisle, byTrips(items)]) : [["", byTrips(shown)]];
   const count = catalog.filter((c) => c.kind !== "or").length;
+  // Kinds show when unfolded, when your search matches one, or when one of them is open.
+  const kindsShown = (id: number) => unfolded.has(id) || (f !== "" && kindsOf(id).some(matches)) || kindsOf(id).some((k) => k.id === open);
 
   const row = (item: CatalogItem, kind = false) => (
     <li key={item.id} className={`${open === item.id ? "open" : ""}${kind ? " kind" : ""}`}>
@@ -55,6 +68,12 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
           </span>
         </span>
       </button>
+      {!kind && kindsOf(item.id).length > 0 && (
+        <button className="kinds-toggle" aria-expanded={kindsShown(item.id)} onClick={() => toggleKinds(item.id)}>
+          {kindsShown(item.id) ? "▾" : "▸"} {kindsOf(item.id).length} kinds
+          {!kindsShown(item.id) && <span className="muted"> · {kindsOf(item.id).slice(0, 3).map((k) => k.name).join(", ")}{kindsOf(item.id).length > 3 ? "…" : ""}</span>}
+        </button>
+      )}
       {open === item.id && (
         <ItemDetail
           item={item}
@@ -119,7 +138,7 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
             {items.map((item) => (
               <Fragment key={item.id}>
                 {row(item)}
-                {kindsOf(item.id).map((k) => row(k, true))}
+                {kindsShown(item.id) && kindsOf(item.id).map((k) => row(k, true))}
               </Fragment>
             ))}
           </ul>
@@ -157,6 +176,7 @@ function ItemDetail({
   const [showTable, setShowTable] = useState(false);
   const [name, setName] = useState(item.name);
   const [barcode, setBarcode] = useState(item.barcode);
+  const [scanning, setScanning] = useState(false);
   const groupName = (id: number | null) => catalog.find((c) => c.id === id)?.name ?? "";
   const [group, setGroup] = useState(groupName(item.group_id));
   const [orSet, setOrSet] = useState(groupName(item.or_id));
@@ -393,15 +413,33 @@ function ItemDetail({
             Barcode
             {item.barcode && item.barcode_source && item.barcode_source !== "you" && <em className="muted"> (found in Open Food Facts)</em>}
           </span>
-          <input
-            value={barcode}
-            inputMode="numeric"
-            maxLength={14}
-            placeholder="None"
-            onChange={(e) => setBarcode(e.target.value.replace(/\D/g, ""))}
-            onBlur={() => barcode !== item.barcode && save({ barcode })}
-          />
+          <span className="with-unit">
+            <input
+              value={barcode}
+              inputMode="numeric"
+              maxLength={14}
+              placeholder="None"
+              onChange={(e) => setBarcode(e.target.value.replace(/\D/g, ""))}
+              onBlur={() => barcode !== item.barcode && save({ barcode })}
+            />
+            <button type="button" className="scan-button" onClick={() => setScanning(true)} aria-label={`Scan the barcode for ${item.name}`} title="Scan">
+              <Icon name="scan" size={22} />
+            </button>
+          </span>
         </label>
+        {scanning && (
+          <Suspense fallback={null}>
+            <Scanner
+              title={`Scan ${item.name}`}
+              onClose={() => setScanning(false)}
+              onCode={(code) => {
+                setScanning(false);
+                setBarcode(code);
+                void save({ barcode: code });
+              }}
+            />
+          </Suspense>
+        )}
       </div>
       <div className="detail-foot">
         <span className="links">

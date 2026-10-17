@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import clubcard
+from . import clubcard, results
 from .catalog import FOOD_GROUP_IDS, FOOD_GROUPS, guess_aisle, guess_food_group
 from .db import Database, category_order
 from .finder import BarcodeFinder
@@ -77,6 +77,10 @@ class BulkCatalog(BaseModel):
 class StoreProduct(BaseModel):
     url: str = Field(min_length=1, max_length=500)
     title: str = Field(default="", max_length=200)
+
+
+class BasketResults(BaseModel):
+    text: str = Field(min_length=1, max_length=200_000)  # Claude in Chrome's reply, pasted as it is
 
 
 class LinkFromStore(StoreProduct):
@@ -635,6 +639,155 @@ def create_app(
                 (item["name"], item["category"], item["barcode"]),
             ).lastrowid
         return save_product(catalog_id, store, body)
+
+    # Checking the basket: Claude in Chrome's results, pasted back
+
+    def shop_names() -> dict[str, dict]:
+        """{matching key: {name, catalog_id}} for everything on the next shop, including each option of a
+        pick-one set (Claude names the one it picked)."""
+        plan = next_shop()
+        by_name = {r["name"].lower(): r["id"] for r in db.rows("SELECT id, name FROM catalog")}
+        out: dict[str, dict] = {}
+        for i in plan["items"]:
+            # Named as the list shows it: a picked set by the option picked, otherwise by the set's own name.
+            picked = next((o for o in i["options"] or [] if o["catalog_id"] == i["chosen"]), None)
+            name = picked["name"] if picked else i["name"]
+            cid = i["chosen"] if i["kind"] == "or" else (i["catalog_id"] or by_name.get(i["name"].lower()))
+            out[results.key(i["name"])] = {"name": name, "catalog_id": cid}
+            for o in i["options"] or []:
+                out.setdefault(results.key(o["name"]), {"name": name, "catalog_id": o["catalog_id"]})
+        return out
+
+    def basket_check(store: str) -> dict | None:
+        checks = db.rows("SELECT * FROM basket_checks WHERE store = ? ORDER BY id DESC LIMIT 1", (store,))
+        if not checks or not checks[0]["raw"]:
+            return None  # none yet, or cleared for a new order
+        c = checks[0]
+        items = db.rows("SELECT * FROM basket_check_items WHERE check_id = ? ORDER BY id", (c["id"],))
+        for i in items:
+            i["link_saved"], i["kept"] = bool(i["link_saved"]), bool(i["kept"])
+        counts = {s: sum(1 for i in items if i["status"] == s) for s in ("added", "swapped", "missing")}
+        return {"id": c["id"], "store": store, "shop_date": c["shop_date"], "checked_at": c["checked_at"], "total": c["total"],
+                "items": items, "unreported": json.loads(c["unreported"]), "counts": counts}
+
+    @app.post("/api/basket/{store}/check")
+    def check_basket(store: str, body: BasketResults):
+        """Read Claude in Chrome's results: what went in the basket, what was swapped and what's missing, plus
+        anything on the shop it didn't mention. Products it added are saved for items with none saved yet."""
+        known_store(store)
+        try:
+            parsed = results.parse(body.text)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        names = shop_names()
+        saved = {(r["catalog_id"]) for r in db.rows("SELECT catalog_id FROM store_products WHERE store = ?", (store,))}
+        reported: set[str] = set()
+        plan = shop_plan()
+        with db.tx() as conn:
+            check_id = conn.execute(
+                "INSERT INTO basket_checks (store, shop_date, raw, total) VALUES (?, ?, ?, ?)",
+                (store, plan["date"] if plan else None, body.text, parsed["total"]),
+            ).lastrowid
+            for r in parsed["items"]:
+                match = names.get(results.key(r["item"]))
+                if match:
+                    reported.add(match["name"])
+                cid = match["catalog_id"] if match else None
+                link_saved = False
+                # A product it added for the item itself (not a swap) becomes the one to buy, if there isn't one yet.
+                if r["status"] == "added" and cid and r["url"] and cid not in saved:
+                    try:
+                        url = product_url(store, r["url"])
+                    except ValueError:
+                        url = None
+                    if url:
+                        conn.execute(
+                            "INSERT INTO store_products (catalog_id, store, url, title) VALUES (?, ?, ?, ?) "
+                            "ON CONFLICT (catalog_id, store) DO NOTHING",
+                            (cid, store, url, r["product"]),
+                        )
+                        saved.add(cid)
+                        link_saved = True
+                conn.execute(
+                    "INSERT INTO basket_check_items (check_id, item, status, product, url, qty, note, catalog_id, link_saved) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (check_id, match["name"] if match else r["item"], r["status"], r["product"], r["url"], r["qty"], r["note"],
+                     cid, int(link_saved)),
+                )
+            unreported = sorted({m["name"] for m in names.values()} - reported, key=str.lower)
+            conn.execute("UPDATE basket_checks SET unreported = ? WHERE id = ?", (json.dumps(unreported), check_id))
+        return basket_check(store)
+
+    @app.get("/api/basket/{store}/check")
+    def latest_basket_check(store: str):
+        """The last basket check for this store, or null."""
+        known_store(store)
+        return basket_check(store)
+
+    @app.delete("/api/basket/{store}/check", status_code=204)
+    def clear_basket_check(store: str):
+        """Start afresh for a new order (the checks stay in the database, just not shown)."""
+        known_store(store)
+        with db.tx() as conn:
+            conn.execute(
+                "INSERT INTO basket_checks (store, shop_date, raw) VALUES (?, NULL, '')", (store,)
+            )
+
+    @app.post("/api/basket/check-items/{item_id}/keep")
+    def keep_swap(item_id: int):
+        """Keep a swap: its product becomes the one to buy for that item from now on."""
+        rows = db.rows(
+            "SELECT i.*, c.store FROM basket_check_items i JOIN basket_checks c ON c.id = i.check_id WHERE i.id = ?", (item_id,))
+        if not rows:
+            raise HTTPException(404, "That result has gone")
+        r = rows[0]
+        if not r["catalog_id"] or not r["url"]:
+            raise HTTPException(422, "There's no product link to keep for that one")
+        save_product(r["catalog_id"], r["store"], StoreProduct(url=r["url"], title=r["product"][:200]))
+        with db.tx() as conn:
+            conn.execute("UPDATE basket_check_items SET kept = 1 WHERE id = ?", (item_id,))
+        return basket_check(r["store"])
+
+    # Did you forget? Things you usually get that aren't on this shop
+
+    @app.get("/api/next-shop/forgotten")
+    def forgotten():
+        """Before ordering: regulars (on at least half of your last 12 shops) that aren't on this shop, and things
+        due before the shop after this one. Leaves out what's on the shop, a maybe, or taken off on purpose."""
+        plan = shop_plan()
+        if not plan:
+            return {"regulars": [], "due_soon": []}
+        current = next_shop()
+        on = {i["name"].lower() for i in current["items"] + current["maybe"] + current["skipped"]}
+        for i in current["items"]:
+            on.update(o["name"].lower() for o in i["options"] or [])
+        # The last 12 trips, and which items (as their generic item) were on each.
+        trips = db.rows(
+            "SELECT store, order_ref, max(bought_on) AS day FROM purchases GROUP BY store, order_ref ORDER BY day DESC LIMIT 12")
+        recent = {(t["store"], t["order_ref"]) for t in trips}
+        on_trip: dict[int, set] = {}
+        for p in db.rows(
+            "SELECT coalesce(c.group_id, c.id) AS root, p.store, p.order_ref FROM purchases p JOIN catalog c ON c.id = p.catalog_id"
+        ):
+            if (p["store"], p["order_ref"]) in recent:
+                on_trip.setdefault(p["root"], set()).add((p["store"], p["order_ref"]))
+        shop = datetime.date.fromisoformat(plan["date"])
+        regulars, due_soon = [], []
+        for u in usual_items():
+            if u["name"].lower() in on:
+                continue
+            qty = max(1, round(u["usual_qty"] or 1))
+            base = {"catalog_id": u["catalog_id"], "name": u["name"], "category": u["category"], "qty": qty}
+            n = len(on_trip.get(u["catalog_id"], ()))
+            if len(trips) >= 4 and n >= 3 and n * 2 >= len(trips):
+                regulars.append({**base, "trips": n, "reason": f"On {n} of your last {len(trips)} shops"})
+                continue
+            # Due before the following shop: the next-shop window stretched to a whole gap.
+            pick = for_next_shop(u, shop, plan["every_days"] * 2, today())
+            if pick:
+                due_soon.append({**base, "trips": u["trips"], "reason": pick["detail"]})
+        regulars.sort(key=lambda r: (-r["trips"], r["name"].lower()))
+        return {"regulars": regulars, "due_soon": sort_items(due_soon)}
 
     # Past online orders (imported by the userscript from the stores' order pages)
 

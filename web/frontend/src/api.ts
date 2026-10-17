@@ -121,6 +121,33 @@ export type ShopItem = {
   /** Its food pyramid shelf; "" when it isn't food. */
   food_group: string;
 };
+export type BasketCheckItem = {
+  id: number;
+  /** The item on your list it's for (or what Claude called it, when it didn't match). */
+  item: string;
+  status: "added" | "swapped" | "missing";
+  product: string;
+  url: string;
+  qty: number | null;
+  note: string;
+  catalog_id: number | null;
+  /** Its product link was saved for the item; kept: a swap kept as the product from now on. */
+  link_saved: boolean;
+  kept: boolean;
+};
+export type BasketCheck = {
+  id: number;
+  store: string;
+  shop_date: string | null;
+  checked_at: string;
+  total: string;
+  items: BasketCheckItem[];
+  /** On the shop, but Claude didn't say what it did. */
+  unreported: string[];
+  counts: { added: number; swapped: number; missing: number };
+} | null;
+export type ForgotItem = { catalog_id: number; name: string; category: string; qty: number; trips: number; reason: string };
+export type Forgotten = { regulars: ForgotItem[]; due_soon: ForgotItem[] };
 export type FoodGroup = { id: string; name: string; advice: string };
 export type PriceMove = { catalog_id: number; name: string; before: number; after: number; change: number };
 export type Spending = {
@@ -220,6 +247,13 @@ export const api = {
     call<NextShop>(`/next-shop/choose/${setId}`, json("POST", { catalog_id: catalogId })),
   typicalShop: () => call<TypicalShop>("/typical-shop"),
   spending: () => call<Spending>("/spending"),
+  /** Regulars and things due soon that aren't on the next shop. */
+  forgotten: () => call<Forgotten>("/next-shop/forgotten"),
+  /** Claude in Chrome's reply, pasted back: what's in the basket, swapped and missing. */
+  checkBasket: (store: string, text: string) => call<BasketCheck>(`/basket/${store}/check`, json("POST", { text })),
+  basketCheck: (store: string) => call<BasketCheck>(`/basket/${store}/check`),
+  clearBasketCheck: (store: string) => call<void>(`/basket/${store}/check`, { method: "DELETE" }),
+  keepSwap: (itemId: number) => call<BasketCheck>(`/basket/check-items/${itemId}/keep`, { method: "POST" }),
   foodGroups: () => call<FoodGroup[]>("/food-groups"),
   skipForShop: (catalogId: number) => call<NextShop>(`/next-shop/skip/${catalogId}`, { method: "POST" }),
   unskipForShop: (catalogId: number) => call<NextShop>(`/next-shop/skip/${catalogId}`, { method: "DELETE" }),

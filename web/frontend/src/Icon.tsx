@@ -23,8 +23,14 @@ import trash from "@material-symbols/svg-400/rounded/delete.svg?raw";
 import undo from "@material-symbols/svg-400/rounded/undo.svg?raw";
 import search from "@material-symbols/svg-400/rounded/search.svg?raw";
 import basket from "@material-symbols/svg-400/rounded/shopping_basket.svg?raw";
+import swap from "@material-symbols/svg-400/rounded/swap_horiz.svg?raw";
+import missing from "@material-symbols/svg-400/rounded/error.svg?raw";
+import unknown from "@material-symbols/svg-400/rounded/help.svg?raw";
+import check from "@material-symbols/svg-400/rounded/fact_check.svg?raw";
+import scan from "@material-symbols/svg-400/rounded/barcode_scanner.svg?raw";
+import camera from "@material-symbols/svg-400/rounded/photo_camera.svg?raw";
 
-const SOURCES = { cart, cartFill, store, list, settings, light, dark, auto, close, add, checked, unchecked, copy, open, link, lock, savings, fire, chart, event, trash, undo, search, basket };
+const SOURCES = { cart, cartFill, store, list, settings, light, dark, auto, close, add, checked, unchecked, copy, open, link, lock, savings, fire, chart, event, trash, undo, search, basket, swap, missing, unknown, check, scan, camera };
 export type IconName = keyof typeof SOURCES;
 
 // Just the drawing: the path data from each file.
