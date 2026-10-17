@@ -4,7 +4,7 @@ A shared shopping list in one Docker container: a React page served by a FastAPI
 
 - **No starter items**: your common items come from what you upload, import or add.
 - **Common items**, aisle by aisle. Tap one to see the weeks you bought it (a square per week, four to a column so habits line up, shaded by month, filled when you bought it), when it's expected next, how often you buy it, what it costs, and every purchase; and to rename it, move it, set its barcode or delete it.
-- **Settings** (top right): upload your Tesco data, **Find barcodes** for your items in Open Food Facts, set up your **aisles** (rename, reorder, add, remove), and add common items in bulk.
+- **Settings** (top right): upload your Tesco data, **Find barcodes** for your items in Open Food Facts, set up your **aisles** (rename, reorder, add, remove), add common items in bulk, and **Start again**: remove all common items, then **Rebuild from history** (every product from an online order, and anything bought on two or more trips). **Clear all** is also at the top of Common items. Clearing never touches your list, purchase history or uploaded files.
 - **Type anything** that isn't there, pick its aisle, and it's added to your list and remembered as a common item.
 - Tick things off as you shop, change quantities, then **Clear ticked**.
 - **Barcodes**: type or paste a barcode (8 to 14 digits) and tap **Look up**. It's found in [Open Food Facts](https://world.openfoodfacts.org) (then Open Beauty, Products and Pet Food Facts), and remembered with the item.
@@ -188,6 +188,8 @@ web/
 | POST | `/api/catalog/bulk` | Add many `{text, category}`, one per line; returns what was added and skipped |
 | PATCH | `/api/catalog/{id}` | Change `{name, category, barcode}` |
 | DELETE | `/api/catalog/{id}` | Forget a common item |
+| POST | `/api/catalog/clear` | Remove all common items (the list and history stay) |
+| POST | `/api/catalog/rebuild` | Make common items again from the purchase history |
 | PUT | `/api/catalog/{id}/products/{store}` | Save the product to buy at `tesco` or `dunnes`: `{url, title}` |
 | DELETE | `/api/catalog/{id}/products/{store}` | Forget it |
 | GET | `/api/list` | Your list, with saved store products |

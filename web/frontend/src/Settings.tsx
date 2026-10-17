@@ -19,6 +19,7 @@ export default function Settings({ categories, run }: Props) {
       <BarcodeFinder itemsChanged={itemsChanged} />
       <Aisles run={run} />
       <AddCommon categories={categories} run={run} onDone={bump} />
+      <StartAgain run={run} onDone={bump} />
     </>
   );
 }
@@ -336,6 +337,53 @@ function AddCommon({ categories, run, onDone }: Props & { onDone: () => void }) 
       {result && (
         <p className="muted" role="status">
           {result}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function StartAgain({ run, onDone }: { run: Props["run"]; onDone: () => void }) {
+  const [note, setNote] = useState<string | null>(null);
+
+  const clear = () => {
+    if (!confirm("Remove all common items? Your list, purchase history and uploaded files stay.")) return;
+    void run(async () => {
+      const r = await api.clearCommon();
+      setNote(`Removed ${r.removed} common items.`);
+      onDone();
+    });
+  };
+
+  const rebuild = () =>
+    run(async () => {
+      const r = await api.rebuildCommon();
+      setNote(
+        r.added || r.purchases
+          ? `Made ${r.added} common items from ${r.purchases} past purchases.`
+          : "Nothing to rebuild: every past purchase already belongs to a common item.",
+      );
+      onDone();
+    });
+
+  return (
+    <section aria-labelledby="start-heading">
+      <h2 id="start-heading">Start again</h2>
+      <p className="muted">
+        Clear out the common items and make them again from your shopping history: every product from an online order, and anything
+        you've bought on two or more trips. Your list, history and uploaded files are never touched.
+      </p>
+      <div className="row">
+        <button className="link danger" onClick={clear}>
+          Remove all common items
+        </button>
+        <button className="primary" onClick={rebuild}>
+          Rebuild from history
+        </button>
+      </div>
+      {note && (
+        <p className="muted" role="status">
+          {note}
         </p>
       )}
     </section>

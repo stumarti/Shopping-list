@@ -28,7 +28,23 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
     <section aria-labelledby="common-heading">
       <div className="section-head">
         <h2 id="common-heading">Common items</h2>
-        <span className="muted">{catalog.length} items</span>
+        <span className="muted">
+          {catalog.length} items
+          {catalog.length > 0 && (
+            <>
+              {" · "}
+              <button
+                className="link danger"
+                onClick={() => {
+                  if (confirm(`Remove all ${catalog.length} common items? Your list and purchase history stay, and Settings → Rebuild from history can bring them back.`))
+                    void run(api.clearCommon);
+                }}
+              >
+                Clear all
+              </button>
+            </>
+          )}
+        </span>
       </div>
       {catalog.length === 0 ? (
         <p className="empty">

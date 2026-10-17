@@ -121,6 +121,8 @@ export const api = {
   finder: () => call<FinderStatus>("/barcodes/find"),
   findBarcodes: (retry = false) => call<FinderStatus>("/barcodes/find", json("POST", { retry })),
   stopFinding: () => call<FinderStatus>("/barcodes/find/stop", { method: "POST" }),
+  clearCommon: () => call<{ removed: number }>("/catalog/clear", { method: "POST" }),
+  rebuildCommon: () => call<{ added: number; purchases: number }>("/catalog/rebuild", { method: "POST" }),
   addCommon: (text: string, category: string) =>
     call<{ added: string[]; skipped: string[] }>("/catalog/bulk", json("POST", { text, category })),
 };

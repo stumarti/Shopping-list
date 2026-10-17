@@ -365,6 +365,51 @@ def create_app(
                 conn.execute(f"UPDATE catalog SET {cols} WHERE id = ?", (*changes.values(), item_id))
         return catalog_item(item_id)
 
+    @app.post("/api/catalog/clear")
+    def clear_catalog():
+        """Remove every common item (and their saved store products and barcodes). The list, the purchase
+        history and uploaded files stay, so "Rebuild from history" can bring items back."""
+        with db.tx() as conn:
+            removed = conn.execute("DELETE FROM catalog").rowcount
+        finder.stop()
+        return {"removed": removed}
+
+    @app.post("/api/catalog/rebuild")
+    def rebuild_catalog():
+        """Make common items again from the purchase history: every product from an online order (with its store
+        link), and anything else bought on at least CLUBCARD_MIN_TRIPS trips (default 2)."""
+        min_trips = int(os.environ.get("CLUBCARD_MIN_TRIPS", "2"))
+        added = relinked = 0
+        with db.tx() as conn:
+            groups = conn.execute(
+                "SELECT lower(name) AS key, max(name) AS name, count(DISTINCT store || order_ref) AS trips, "
+                "max(url != '') AS linked FROM purchases WHERE catalog_id IS NULL GROUP BY lower(name)"
+            ).fetchall()
+            for g in groups:
+                if g["trips"] < min_trips and not g["linked"]:
+                    continue
+                name = tidy_name(g["name"][:80])
+                row = conn.execute("SELECT id FROM catalog WHERE lower(name) = lower(?)", (name,)).fetchone()
+                if row:
+                    catalog_id = row["id"]
+                else:
+                    catalog_id = conn.execute(
+                        "INSERT INTO catalog (name, category, custom) VALUES (?, ?, 1)", (name, guess(g["name"]))
+                    ).lastrowid
+                    added += 1
+                relinked += conn.execute(
+                    "UPDATE purchases SET catalog_id = ? WHERE catalog_id IS NULL AND lower(name) = ?", (catalog_id, g["key"])
+                ).rowcount
+                for link in conn.execute(
+                    "SELECT store, url, name FROM purchases WHERE catalog_id = ? AND url != '' ORDER BY bought_at DESC",
+                    (catalog_id,),
+                ).fetchall():
+                    conn.execute(
+                        "INSERT OR IGNORE INTO store_products (catalog_id, store, url, title) VALUES (?, ?, ?, ?)",
+                        (catalog_id, link["store"], link["url"], link["name"][:200]),
+                    )
+        return {"added": added, "purchases": relinked}
+
     @app.delete("/api/catalog/{item_id}", status_code=204)
     def remove_from_catalog(item_id: int):
         with db.tx() as conn:
