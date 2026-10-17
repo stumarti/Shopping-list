@@ -1,3 +1,4 @@
+import contextlib
 import datetime
 import json
 import os
@@ -11,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import clubcard, nutrition, results
+from . import clubcard, mcp_server, nutrition, results
 from .catalog import FOOD_GROUP_IDS, FOOD_GROUPS, guess_aisle, guess_food_group
 from .db import Database, category_order
 from .finder import BarcodeFinder
@@ -155,6 +156,7 @@ def create_app(
     today=datetime.date.today,
     search_gap: float = 6.5,
     nutrition_gap: float = 1.0,
+    mcp_token: str | None = None,
 ) -> FastAPI:
     db = Database(db_path or os.environ.get("DB_PATH", "shopping.db"))
     finder = BarcodeFinder(db, fetch, search_gap)
@@ -1326,6 +1328,23 @@ def create_app(
         with db.tx() as conn:
             removed = conn.execute("DELETE FROM list_items WHERE done = 1").rowcount
         return {"removed": removed}
+
+    # The MCP server, for Claude: the same API as tools, at /mcp (see mcp_server.py).
+    mcp_secret = mcp_token if mcp_token is not None else os.environ.get("MCP_TOKEN", "")
+    mcp_route, mcp_running = mcp_server.build(app, token=mcp_secret)
+    app.router.routes.append(mcp_route)
+
+    @app.get("/api/mcp")
+    def mcp_info():
+        """For Settings: where the MCP server is, and whether it needs MCP_TOKEN (never the token itself)."""
+        return {"path": "/mcp", "token_required": bool(mcp_secret)}
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_):
+        async with mcp_running():
+            yield
+
+    app.router.lifespan_context = lifespan
 
     # The built React app. Any path that isn't an API call or a real file gets index.html.
     static = Path(static_dir or os.environ.get("STATIC_DIR", Path(__file__).parent.parent / "static"))

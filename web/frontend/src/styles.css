@@ -2847,3 +2847,13 @@ button.primary,
 .nutrition-fill p {
   margin: 4px 0 0;
 }
+
+code.command {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ground);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}

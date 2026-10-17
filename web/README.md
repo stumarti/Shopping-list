@@ -53,6 +53,7 @@ services:
       - PGID=${PGID:-100}
       - TZ=${TZ:-Europe/Dublin}
       - PUBLIC_URL=${PUBLIC_URL:-}  # the address you open the list at, if a proxy changes it
+      - MCP_TOKEN=${MCP_TOKEN:-}    # optional password for the MCP server at /mcp (for Claude)
       - TESCO_SEARCH_URL=${TESCO_SEARCH_URL:-}
       - DUNNES_SEARCH_URL=${DUNNES_SEARCH_URL:-}
     volumes:
@@ -153,6 +154,26 @@ To help fix it without sharing your account, press **Save page for Claude** in t
 
 Automated use may not be allowed by a store's terms. The helper only runs when you press the button, in your own browser and signed-in session, at a person's pace.
 
+## Use it from Claude (MCP)
+
+The app is also an [MCP](https://modelcontextprotocol.io) server at `/mcp`, so Claude can use the list directly: ask what's on the next shop, add or take things off, pick from a pick-one set, look up an item's history or your spending, and fill an online basket. To fill a basket, Claude gets **Before you order** and the list with your saved product links, and afterwards records what was added, swapped and missing. **Check the basket** on Shop online then shows the same review as pasting a reply, with no copy and paste. Claude is told to only add to the basket, never to check out, pay or touch a slot, and never to swap a **Never swap** item.
+
+| Tool | What it does |
+|---|---|
+| `next_shop` | The next shop's date, what's on it and why, the maybes, what was taken off |
+| `add_to_list`, `take_off_next_shop`, `put_back_on_next_shop`, `pick_option` | Change the next shop |
+| `before_you_order` | What might be missing: unpicked sets, maybes, regulars not on it, things due soon |
+| `find_items`, `item_history`, `spending` | Common items, an item's history and prices, what you've spent |
+| `basket_list` | The next shop for Tesco or Dunnes, with saved product links and Never swap |
+| `record_basket_results`, `last_basket_check` | Record how filling the basket went / read it back |
+
+Connect it:
+
+- **Claude Code**, on a computer on your network: `claude mcp add --transport http shopping-list http://<server>:8080/mcp` (add `--header "Authorization: Bearer <token>"` if you set `MCP_TOKEN`).
+- **claude.ai and the Claude apps** (Settings → Connectors → add a custom connector): these connect from Anthropic's side, so the app has to be reachable on public **https**, for example through a reverse proxy or Tailscale Funnel. **Set `MCP_TOKEN` first**, then use `https://<your address>/mcp?token=<token>` as the connector's address.
+
+`MCP_TOKEN` (in `.env`) is the MCP server's password: requests need `Authorization: Bearer <token>` or `?token=<token>`. Without it, anyone who can reach the app can use the tools, just as they can use the page. Settings → **Connect Claude** shows the address to use.
+
 ## Releases
 
 [`.github/workflows/web-release.yml`](../.github/workflows/web-release.yml) builds and publishes everything:
@@ -179,6 +200,7 @@ web/
     clubcard.py        reads Tesco's Clubcard data export
     finder.py          finds barcodes for items by name in Open Food Facts
     nutrition.py       calories and macros per pack from Open Food Facts, by barcode
+    mcp_server.py      the MCP server at /mcp: the API as tools for Claude
     stats.py           how often each item is bought and what it costs
     results.py         reads the results block in Claude in Chrome's reply
   frontend/src/

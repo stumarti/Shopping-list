@@ -18,6 +18,7 @@ export default function Settings({ categories, run }: Props) {
       <ClubcardUpload run={run} onDone={bump} />
       <BarcodeFinder itemsChanged={itemsChanged} />
       <NutritionFiller itemsChanged={itemsChanged} />
+      <ConnectClaude />
       <Aisles run={run} />
       <AddCommon categories={categories} run={run} onDone={bump} />
       <StartAgain run={run} onDone={bump} />
@@ -468,6 +469,52 @@ function NutritionFiller({ itemsChanged }: { itemsChanged: number }) {
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+
+/** How to connect Claude to the MCP server at /mcp. */
+function ConnectClaude() {
+  const [info, setInfo] = useState<{ path: string; token_required: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    api.mcpInfo().then(setInfo, () => setInfo(null));
+  }, []);
+  if (!info) return null;
+  const url = location.origin + info.path;
+  const command = `claude mcp add --transport http shopping-list ${url}${info.token_required ? ' --header "Authorization: Bearer <your MCP_TOKEN>"' : ""}`;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // No clipboard on plain http: the command is there to select.
+    }
+  };
+  return (
+    <section aria-labelledby="mcp-heading">
+      <h2 id="mcp-heading">Connect Claude</h2>
+      <p className="muted">
+        Claude can use this list through its MCP server: ask what's on the next shop, add things, look up prices and spending, or fill an
+        online basket and record what went in (it then shows under Check the basket on Shop online).
+      </p>
+      <p>
+        Address: <code>{url}</code>{" "}
+        <span className="muted">· {info.token_required ? "needs your MCP_TOKEN" : "no token set: anyone who can reach the app can use it"}</span>
+      </p>
+      <p className="muted">Claude Code, on a computer on your network:</p>
+      <div className="add-form">
+        <code className="command">{command}</code>
+        <button className="link" onClick={copy}>
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <p className="muted hint">
+        claude.ai and the Claude apps connect from Anthropic's side, so they need the app on public https: set MCP_TOKEN first, then add a
+        custom connector with <code>{"https://<your address>/mcp?token=<token>"}</code>.
+      </p>
     </section>
   );
 }

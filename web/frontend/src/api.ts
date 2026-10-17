@@ -253,6 +253,7 @@ export const api = {
   stopFinding: () => call<FinderStatus>("/barcodes/find/stop", { method: "POST" }),
   /** Calories and macros per pack from Open Food Facts, by the item's barcode (only empty ones, unless overwrite). */
   fillNutrition: (catalogId: number, overwrite = false) => call<NutritionResult>(`/catalog/${catalogId}/nutrition`, json("POST", { overwrite })),
+  mcpInfo: () => call<{ path: string; token_required: boolean }>("/mcp"),
   nutritionStatus: () => call<NutritionStatus>("/nutrition/fill"),
   fillAllNutrition: (retry: boolean) => call<NutritionStatus>("/nutrition/fill", json("POST", { retry })),
   stopFillingNutrition: () => call<NutritionStatus>("/nutrition/fill/stop", { method: "POST" }),
