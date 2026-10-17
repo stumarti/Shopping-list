@@ -1395,12 +1395,35 @@ progress {
 }
 
 .typical li {
+  border-top: 1px solid var(--line);
+}
+
+/* Each aisle is a button: tap to see just that aisle in the list */
+.typical-row {
   display: grid;
   grid-template-columns: minmax(0, 11rem) 1fr auto;
   gap: 4px 12px;
   align-items: center;
-  padding: 7px 0;
-  border-top: 1px solid var(--line);
+  width: 100%;
+  padding: 7px 6px;
+  margin: 0 -6px;
+  box-sizing: content-box;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.typical-row:hover {
+  background: var(--ground);
+}
+
+.typical-row.on {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .typical-name {
@@ -1441,7 +1464,7 @@ progress {
 }
 
 @media (max-width: 480px) {
-  .typical li {
+  .typical-row {
     grid-template-columns: 1fr auto;
   }
 
@@ -1509,4 +1532,80 @@ main.wide {
 
 .shop-side .kcal {
   margin-top: 8px;
+}
+
+/* Next shop: one aisle at a time */
+.part {
+  margin-top: 14px;
+}
+
+.part-title {
+  margin: 0 0 2px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.part-note {
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+}
+
+.maybes {
+  margin-top: 22px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.shop-items .add-one {
+  flex: none;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.shop-items .add-one:hover {
+  background: var(--accent-soft);
+}
+
+.aisle-link {
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.aisle-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* Calories: what this shop and a usual week come to, against a week's needs */
+.kcal-row {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.kcal-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.kcal-note {
+  font-size: 0.8rem;
 }

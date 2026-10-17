@@ -190,9 +190,10 @@ def for_next_shop(item: dict, shop: datetime.date, shop_every: int, today: datet
 # A typical shop, aisle by aisle.
 
 def typical_shop(lines: list[dict], aisle_order: list[str]) -> dict | None:
-    """lines: one row per product bought on a trip, each {trip, aisle, name, qty, spend, kcal} (spend and kcal are
-    None when unknown). Returns averages per trip, overall and aisle by aisle (in aisle order), with the products
-    found on the most trips in each aisle; None when there are no trips."""
+    """lines: one row per product bought on a trip, each {trip, day, aisle, name, qty, spend, kcal} (spend and kcal
+    are None when unknown). Returns averages per trip, overall and aisle by aisle (in aisle order), with the products
+    found on the most trips in each aisle, and calories per week over the weeks you shopped (a week with no shopping,
+    say you were away or shopped elsewhere, isn't counted); None when there are no trips."""
     trips = {line["trip"] for line in lines}
     if not trips:
         return None
@@ -228,12 +229,16 @@ def typical_shop(lines: list[dict], aisle_order: list[str]) -> dict | None:
         })
     priced = sum(a["priced"] for a in aisles.values())
     counted = sum(a["counted"] for a in aisles.values())
+    # Weeks run Monday to Sunday.
+    weeks = {(d := datetime.date.fromisoformat(line["day"])) - datetime.timedelta(days=d.weekday()) for line in lines if line.get("day")}
     return {
         "trips": n,
         "products": round(len(lines) / n, 1),
         "units": round(sum(line["qty"] for line in lines) / n, 1),
         "spend": round(sum(a["spend"] for a in aisles.values()) / n, 2) if priced else None,
         "kcal": round(sum(a["kcal"] for a in aisles.values()) / n) if counted else None,
+        "weeks": len(weeks),
+        "kcal_week": round(sum(a["kcal"] for a in aisles.values()) / len(weeks)) if counted and weeks else None,
         # How much of what you buy has calories set, 0 to 1, so a total can be read for what it is.
         "kcal_known": round(counted / len(lines), 2),
         "aisles": out,

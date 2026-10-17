@@ -1,6 +1,6 @@
 import datetime
 
-from app.stats import group_suggestions, item_stats, suggestion
+from app.stats import typical_shop, group_suggestions, item_stats, suggestion
 
 TODAY = datetime.date(2026, 10, 17)
 
@@ -116,3 +116,11 @@ def test_what_goes_on_the_next_shop():
     assert for_next_shop(stopped, shop, 7, TODAY) is None
     twice = {"name": "Cake", **bought(10, 20)}
     assert for_next_shop(twice, shop, 7, TODAY) is None  # needs three trips to tell
+
+
+def test_typical_shop_calories_a_week_skip_weeks_with_no_shopping():
+    line = lambda trip, day, kcal: {"trip": trip, "day": day, "aisle": "Dairy & eggs", "name": "Milk", "qty": 1, "spend": 2.0, "kcal": kcal}
+    # Two shops one week, one a fortnight later; the week between had no shopping and isn't counted
+    t = typical_shop([line("a", "2026-10-05", 3000), line("b", "2026-10-09", 1000), line("c", "2026-10-21", 2000)], ["Dairy & eggs"])
+    assert t["weeks"] == 2 and t["kcal_week"] == 3000
+    assert t["kcal"] == 2000  # a shop

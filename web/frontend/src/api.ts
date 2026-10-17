@@ -113,11 +113,16 @@ export type TypicalShop = {
   spend: number | null;
   kcal: number | null;
   kcal_known: number;
+  /** Weeks with any shopping, and calories bought a week over those weeks only. */
+  weeks: number;
+  kcal_week: number | null;
   aisles: TypicalAisle[];
 } | null;
 export type NextShop = {
   shop: { date: string; every_days: number; last_shop: string; reason: string } | null;
   items: ShopItem[];
+  /** Not sure you'll need these: they're out of the shop until you add them. */
+  maybe: ShopItem[];
   skipped: ShopItem[];
 };
 /** A change to a common item. group: the generic item it's a kind of ("" for none); or_set: its pick-one set. */

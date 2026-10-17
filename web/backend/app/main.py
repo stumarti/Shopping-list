@@ -806,6 +806,7 @@ def create_app(
 
         items = []
         skipped = []
+        maybe = []
         added = db.rows("SELECT id, name, category, qty FROM list_items WHERE done = 0")
         added_names = {a["name"].lower() for a in added}
         if plan:
@@ -822,12 +823,16 @@ def create_app(
                 }
                 (skipped if u["catalog_id"] in skips else items).append(entry)
             items, skipped = pick_one_sets(items, skipped, skips, plan["date"], cat, kcal, trips, usual)
+            # Things you're not sure to need stay out of the shop until you add them (a pick-one set stays in: you pick).
+            maybe = [e for e in items + skipped if e["badge"] == "unsure" and e["kind"] != "or"]
+            items = [e for e in items if e not in maybe]
+            skipped = [e for e in skipped if e not in maybe]
         for a in added:
             items.append({
                 "catalog_id": None, "list_item_id": a["id"], "name": a["name"], "category": a["category"], "qty": a["qty"],
                 "badge": "added", "label": "Added", "detail": "You added this", **extra(by_name.get(a["name"].lower())),
             })
-        return {"shop": plan, "items": sort_items(items), "skipped": sort_items(skipped)}
+        return {"shop": plan, "items": sort_items(items), "maybe": sort_items(maybe), "skipped": sort_items(skipped)}
 
     def pick_one_sets(items, skipped, skips, shop_date, cat, kcal, trips, usual):
         """Fold the options of each pick-one set (two or more options) that are due into one line for the set."""
@@ -909,6 +914,7 @@ def create_app(
             k = kcal.get(r["catalog_id"]) if r["catalog_id"] else None
             lines.append({
                 "trip": r["trip"],
+                "day": r["bought_on"],
                 "aisle": r["root_category"] or guess(r["name"]),
                 "name": r["root_name"] or r["name"],
                 "qty": r["qty"],

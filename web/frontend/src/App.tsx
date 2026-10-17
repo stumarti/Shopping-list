@@ -199,7 +199,7 @@ export default function App() {
       ) : tab === "shop" ? (
         SHOW_SHOP && <Shop list={list} links={links} groupBy={groupBy} run={run} />
       ) : !SHOW_LIST ? (
-        <NextShop listSize={list.length} groupBy={groupBy} run={run} />
+        <NextShop listSize={list.length} catalog={catalog} groupBy={groupBy} run={run} />
       ) : (
         <>
           <section aria-labelledby="list-heading">
