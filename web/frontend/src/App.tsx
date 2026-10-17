@@ -4,6 +4,7 @@ import Manage from "./Manage";
 import NextShop from "./NextShop";
 import Settings from "./Settings";
 import ShopOnline from "./ShopOnline";
+import Icon, { type IconName } from "./Icon";
 import ThemeSwitch from "./Theme";
 import Suggestions from "./Suggestions";
 
@@ -13,10 +14,10 @@ const SHOW_LIST = false;
 const POLL_MS = 10_000;
 
 type Tab = "list" | "common" | "shop" | "settings";
-const TABS: [Tab, string][] = [
-  ["list", "Next shop"],
-  ["shop", "Shop online"],
-  ["common", "Common items"],
+const TABS: [Tab, string, IconName][] = [
+  ["list", "Next shop", "cart"],
+  ["shop", "Shop online", "store"],
+  ["common", "Common items", "list"],
 ];
 const tabFromHash = (): Tab =>
   location.hash === "#settings" ? "settings" : (TABS.find(([t]) => location.hash === `#${t}` && t !== "list")?.[0] ?? "list");
@@ -166,8 +167,9 @@ export default function App() {
               className={`settings-link${tab === "settings" ? " on" : ""}`}
               aria-current={tab === "settings" ? "page" : undefined}
               onClick={(e) => (e.preventDefault(), go("settings"))}
+              title="Settings"
             >
-              Settings
+              <Icon name="settings" /> <span className="label">Settings</span>
             </a>
           </span>
         </div>
@@ -178,9 +180,9 @@ export default function App() {
           </p>
         )}
         <nav className="tabs" aria-label="Pages">
-          {TABS.map(([t, label]) => (
+          {TABS.map(([t, label, icon]) => (
             <button key={t} className={tab === t ? "on" : ""} aria-current={tab === t ? "page" : undefined} onClick={() => go(t)}>
-              {label}
+              <Icon name={icon} size={22} /> <span>{label}</span>
             </button>
           ))}
         </nav>

@@ -2265,3 +2265,248 @@ textarea.prompt {
   gap: 8px;
   cursor: pointer;
 }
+
+/* Material icons */
+.icon {
+  display: inline-block;
+  flex: none;
+  vertical-align: -0.22em;
+}
+
+button.primary,
+.tabs button,
+.settings-link,
+.theme-switch,
+.add-one,
+.remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.shop-when .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Ticking things off as they go in the trolley */
+.got-toggle {
+  flex: none;
+  display: inline-flex;
+  padding: 4px;
+  margin-left: -4px;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.got-toggle:hover {
+  color: var(--accent);
+}
+
+.got-toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.shop-items li.got .shop-item-name {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.shop-items li.got .shop-item-meta,
+.shop-items li.got .options {
+  display: none;
+}
+
+.trolley {
+  margin-top: 18px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.trolley .part-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+}
+
+.trolley-meter {
+  height: 4px;
+  margin: 6px 0 2px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.trolley-meter span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+
+/* Aisle chips: jump to one aisle */
+.aisle-chips {
+  display: flex;
+  gap: 6px;
+  margin: 10px -4px 4px;
+  padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.aisle-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.aisle-chips button {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.aisle-chips button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.aisle-chips .n {
+  margin-left: 2px;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.badges-help {
+  margin-top: 12px;
+}
+
+.badges-help summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.empty .icon {
+  color: var(--accent);
+}
+
+/* Phones: a slim header, the pages as a bar along the bottom, bigger tap targets */
+@media (max-width: 600px) {
+  main {
+    padding: 12px 12px calc(84px + env(safe-area-inset-bottom));
+  }
+
+  h1 {
+    font-size: 1.3rem;
+  }
+
+  .title-row {
+    align-items: center;
+  }
+
+  .header-links {
+    gap: 4px;
+  }
+
+  .header-links .label {
+    display: none;
+  }
+
+  .settings-link,
+  .theme-switch {
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+  }
+
+  .tabs {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 20;
+    margin: 0;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border: none;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--surface);
+    box-shadow: 0 -2px 12px rgb(0 0 0 / 0.06);
+  }
+
+  .tabs button {
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 2px;
+    font-size: 0.72rem;
+  }
+
+  .tabs button .icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  section {
+    padding: 14px;
+  }
+
+  .shop-when h2 {
+    font-size: 1.15rem;
+  }
+
+  .shop-when p:last-child {
+    font-size: 0.85rem;
+  }
+
+  /* The aisle chips stay at the top while you scroll the list. */
+  .aisle-chips {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    margin: 8px -14px 4px;
+    padding: 8px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .shop-items li {
+    padding: 9px 0;
+    gap: 6px;
+  }
+
+  .shop-item-name {
+    font-size: 1.02rem;
+  }
+
+  .shop-item-meta .meta-extra {
+    display: none;
+  }
+
+  .shop-items .remove {
+    width: 40px;
+    height: 40px;
+  }
+
+  .shop-add button.primary .label {
+    display: none;
+  }
+
+  .shop-add button.primary {
+    padding: 10px 14px;
+  }
+}
+
+.button-link,
+.save-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

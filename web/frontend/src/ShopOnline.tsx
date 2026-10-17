@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import Icon from "./Icon";
 import { api, fillLink, type CatalogItem, type Links, type NextShop, type ShopItem } from "./api";
 
 type Props = {
@@ -224,7 +225,7 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
                       <span className="online-actions">
                         {linking !== l.key && (
                           <button className="link save-link" onClick={() => (setLinking(l.key), setPasted(""))}>
-                            {l.url ? "Change link" : "Save link"}
+                            <Icon name="link" size={16} /> {l.url ? "Change link" : "Save link"}
                           </button>
                         )}
                         <label className="exact" title="Always get exactly this: never swapped for something cheaper or because it's out of stock">
@@ -233,7 +234,7 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
                             checked={l.exact}
                             onChange={(e) => setExact(l.catalogId!, e.target.checked)}
                           />
-                          Never swap
+                          <Icon name="lock" size={14} /> Never swap
                         </label>
                       </span>
                     )}
@@ -278,7 +279,7 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
             ))}
           </div>
           <a className="button-link" href={store.home} target="_blank" rel="noreferrer">
-            Open {store.name} ↗
+            <Icon name="open" size={18} /> Open {store.name}
           </a>
         </div>
 
@@ -308,7 +309,7 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
         <fieldset className="cheaper">
           <legend>
             <label>
-              <input type="checkbox" checked={cheaper.on} onChange={(e) => setCheaper({ on: e.target.checked })} /> Look for cheaper options
+              <input type="checkbox" checked={cheaper.on} onChange={(e) => setCheaper({ on: e.target.checked })} /> <Icon name="savings" size={18} /> Look for cheaper options
             </label>
           </legend>
           {cheaper.on && (
@@ -359,7 +360,7 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
         <div className="section-head prompt-head">
           <h3>Prompt for Claude in Chrome</h3>
           <button className="primary" onClick={copy} disabled={items.length === 0}>
-            {copied ? "Copied" : "Copy"}
+            <Icon name={copied ? "checked" : "copy"} size={18} /> {copied ? "Copied" : "Copy"}
           </button>
         </div>
         <textarea id="claude-prompt" className="prompt" readOnly value={text} rows={14} aria-label="Prompt for Claude in Chrome" onFocus={(e) => e.target.select()} />

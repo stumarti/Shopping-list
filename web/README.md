@@ -9,6 +9,8 @@ A shared shopping list in one Docker container: a React page served by a FastAPI
 - **Calories and macros**: set calories, protein, carbs and fat **per pack** on common items and the next shop adds them up against a week for your household: adults (about 2,250 kcal a day) and children (about 1,600) entered separately, with macros against the reference intakes scaled to that. It also shows **a usual week** from your history, counting only weeks you shopped. A generic item without its own figures uses the average of its kinds; a pick-one set not yet picked shows the range. The household, macros and a **food pyramid** (how many things on this shop sit on each shelf; each item's food group is guessed from its name and aisle, and you can change it) are collapsed until you open them.
 - **Your typical shop** (beside the next shop): products and spend per shop in each aisle, averaged over your trips in the last year.
 - **Light or dark**: the switch at the top right goes Auto (follows the device), Light, Dark.
+- **On your phone in the shop**: the pages move to a bar along the bottom, and the aisle chips above the list stay at the top as you scroll (each shows how much is left in that aisle). Tap the circle beside an item when it's in the trolley: it drops to **In the trolley** at the bottom, and a bar shows how far through you are. Ticks are kept on that phone for this shop's date, and start fresh for the next shop.
+- **Icons** are [Material Symbols](https://fonts.google.com/icons) (rounded), bundled in the page so it works without the internet.
 - **No starter items**: your common items come from what you upload, import or add.
 - **Common items**, aisle by aisle. Tap one to see the weeks you bought it (a square per week, four to a column so habits line up, shaded by month, filled when you bought it, hollow when you didn't shop at all that week; it opens on the latest weeks, scroll back for older ones), its price over time, what you've spent on it, when it's expected next and every purchase; and to rename it, move it, set its barcode, calories, macros and food group, or delete it.
 - **Spending and prices** (top of Common items): what you've spent, a shop and a week (weeks you didn't shop don't count), month by month, and how prices of the things you buy again and again have moved, with what's gone up and down most.
@@ -183,6 +185,7 @@ web/
     Spending.tsx       spending and price changes, on Common items
     PriceChart.tsx     an item's price over time
     Theme.tsx          the light / dark switch
+    Icon.tsx           Material Symbols icons, bundled from @material-symbols/svg-400
     History.tsx        Past shopping: uploads, what you buy, how often, prices
     Manage.tsx         the Common items tab: items (most bought first or by aisle), kinds, sets, each item's history
     Order.tsx          the Most bought / By aisle switch
