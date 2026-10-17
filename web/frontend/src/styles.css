@@ -934,11 +934,13 @@ progress {
 /* Weekly grid: a square per week, a column per month */
 .weekly {
   --bar: #1a7f4b;
+  --month-shade: #e4e8e1;
 }
 
 @media (prefers-color-scheme: dark) {
   .weekly {
     --bar: #3aab72;
+    --month-shade: #2a332e;
   }
 }
 
@@ -954,6 +956,10 @@ progress {
   fill: var(--ground);
   stroke: var(--line);
   stroke-width: 1;
+}
+
+.weekly .cell.shade {
+  fill: var(--month-shade);
 }
 
 .weekly .cell.bought {
@@ -1002,6 +1008,14 @@ progress {
   border: 1px solid var(--line);
   background: var(--ground);
   vertical-align: -1px;
+}
+
+.swatch.shade {
+  background: var(--month-shade);
+}
+
+.swatch + .swatch {
+  margin-left: -1px;
 }
 
 .swatch.bought {

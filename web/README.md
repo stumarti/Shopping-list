@@ -3,7 +3,7 @@
 A shared shopping list in one Docker container: a React page served by a FastAPI backend, with the list kept in SQLite. It comes with a browser helper that fills your Tesco or Dunnes basket.
 
 - **No starter items**: your common items come from what you upload, import or add.
-- **Common items**, aisle by aisle. Tap one to see the weeks you bought it (a square per week, a column per month, filled when you bought it), when it's expected next, how often you buy it, what it costs, and every purchase; and to rename it, move it, set its barcode or delete it.
+- **Common items**, aisle by aisle. Tap one to see the weeks you bought it (a square per week, four to a column so habits line up, shaded by month, filled when you bought it), when it's expected next, how often you buy it, what it costs, and every purchase; and to rename it, move it, set its barcode or delete it.
 - **Settings** (top right): upload your Tesco data, **Find barcodes** for your items in Open Food Facts, set up your **aisles** (rename, reorder, add, remove), and add common items in bulk.
 - **Type anything** that isn't there, pick its aisle, and it's added to your list and remembered as a common item.
 - Tick things off as you shop, change quantities, then **Clear ticked**.
