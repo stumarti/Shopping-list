@@ -109,11 +109,12 @@ export default function App() {
 
   const q = query.trim().toLowerCase();
   const typedBarcode = isBarcode(query);
-  const matches = q && !typedBarcode ? catalog.filter((c) => c.name.toLowerCase().includes(q)) : catalog;
+  const buyable = catalog.filter((c) => c.kind !== "or");
+  const matches = q && !typedBarcode ? buyable.filter((c) => c.name.toLowerCase().includes(q)) : buyable;
   // An exact name, or the only item matching what's typed, is what Add picks.
   const exact = typedBarcode
     ? undefined
-    : (catalog.find((c) => c.name.toLowerCase() === q) ?? (q && matches.length === 1 ? matches[0] : undefined));
+    : (buyable.find((c) => c.name.toLowerCase() === q) ?? (q && matches.length === 1 ? matches[0] : undefined));
   const remaining = list.filter((i) => !i.done).length;
   const ticked = list.length - remaining;
 

@@ -180,3 +180,56 @@ def for_next_shop(item: dict, shop: datetime.date, shop_every: int, today: datet
         return {"badge": "weekly" if label == "Weekly" else "scheduled", "label": label, "detail": f"Last bought {last}, {when}"}
     usual = f"usually every {gap} days" if gap and gap <= REGULAR_MAX_GAP else "now and then"
     return {"badge": "unsure", "label": "Not sure", "detail": f"Bought {usual}, {when}"}
+
+
+# A typical shop, aisle by aisle.
+
+def typical_shop(lines: list[dict], aisle_order: list[str]) -> dict | None:
+    """lines: one row per product bought on a trip, each {trip, aisle, name, qty, spend, kcal} (spend and kcal are
+    None when unknown). Returns averages per trip, overall and aisle by aisle (in aisle order), with the products
+    found on the most trips in each aisle; None when there are no trips."""
+    trips = {line["trip"] for line in lines}
+    if not trips:
+        return None
+    n = len(trips)
+    aisles: dict[str, dict] = {}
+    for line in lines:
+        a = aisles.setdefault(line["aisle"], {"products": 0, "units": 0.0, "spend": 0.0, "priced": 0, "kcal": 0.0,
+                                              "counted": 0, "names": {}})
+        a["products"] += 1
+        a["units"] += line["qty"]
+        if line["spend"] is not None:
+            a["spend"] += line["spend"]
+            a["priced"] += 1
+        if line["kcal"] is not None:
+            a["kcal"] += line["kcal"]
+            a["counted"] += 1
+        a["names"].setdefault(line["name"], set()).add(line["trip"])
+
+    def place(name: str) -> int:
+        return aisle_order.index(name) if name in aisle_order else len(aisle_order)
+
+    out = []
+    for name in sorted(aisles, key=lambda k: (place(k), k)):
+        a = aisles[name]
+        top = sorted(a["names"], key=lambda k: (-len(a["names"][k]), k))[:4]
+        out.append({
+            "aisle": name,
+            "products": round(a["products"] / n, 1),
+            "units": round(a["units"] / n, 1),
+            "spend": round(a["spend"] / n, 2) if a["priced"] else None,
+            "kcal": round(a["kcal"] / n) if a["counted"] else None,
+            "top": top,
+        })
+    priced = sum(a["priced"] for a in aisles.values())
+    counted = sum(a["counted"] for a in aisles.values())
+    return {
+        "trips": n,
+        "products": round(len(lines) / n, 1),
+        "units": round(sum(line["qty"] for line in lines) / n, 1),
+        "spend": round(sum(a["spend"] for a in aisles.values()) / n, 2) if priced else None,
+        "kcal": round(sum(a["kcal"] for a in aisles.values()) / n) if counted else None,
+        # How much of what you buy has calories set, 0 to 1, so a total can be read for what it is.
+        "kcal_known": round(counted / len(lines), 2),
+        "aisles": out,
+    }

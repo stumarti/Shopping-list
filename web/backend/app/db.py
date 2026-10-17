@@ -134,6 +134,24 @@ MIGRATIONS = [
         PRIMARY KEY (catalog_id, shop_date)
     )
     """,
+    # 8: generic items ("Broccoli" holding "Tenderstem broccoli" and "Broccoli florets"), pick-one sets
+    #    ("Protein": chicken or mince or salmon) and calories per pack. kind is 'item', 'group' (a generic item
+    #    with kinds under it) or 'or' (a pick-one set, never bought itself). auto_group marks a generic item made
+    #    only to hold kinds, so it goes again when its last kind leaves. shop_choices: the option picked from a
+    #    set for one shop.
+    """
+    ALTER TABLE catalog ADD COLUMN kind TEXT NOT NULL DEFAULT 'item';
+    ALTER TABLE catalog ADD COLUMN group_id INTEGER REFERENCES catalog (id) ON DELETE SET NULL;
+    ALTER TABLE catalog ADD COLUMN or_id INTEGER REFERENCES catalog (id) ON DELETE SET NULL;
+    ALTER TABLE catalog ADD COLUMN auto_group INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE catalog ADD COLUMN kcal REAL;
+    CREATE TABLE shop_choices (
+        or_id INTEGER NOT NULL REFERENCES catalog (id) ON DELETE CASCADE,
+        shop_date TEXT NOT NULL,
+        catalog_id INTEGER NOT NULL REFERENCES catalog (id) ON DELETE CASCADE,
+        PRIMARY KEY (or_id, shop_date)
+    )
+    """,
 ]
 
 FALLBACK_AISLE = "Other"

@@ -684,3 +684,104 @@ def test_next_shop(tmp_path):
     # Nothing bought yet: no date, just what you added
     empty = TestClient(create_app(db_path=str(tmp_path / "e.db"), static_dir=str(tmp_path / "none"))).get("/api/next-shop").json()
     assert empty == {"shop": None, "items": [], "skipped": []}
+
+
+def test_generic_items_pick_one_sets_and_calories(tmp_path):
+    import datetime as dt
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none"),
+                              today=lambda: dt.date(2026, 10, 15)))
+    trips = []
+    for n, d in enumerate(["09-05", "09-12", "09-19", "09-26", "10-03", "10-10"]):  # Saturdays
+        lines = [("Tesco Whole Milk 2L", 1, 2.19)]
+        # Broccoli every week, but a different kind each time
+        lines.append(("Tesco Tenderstem Broccoli 200g", 1, 2.0) if n % 2 == 0 else ("Tesco Broccoli Florets 360g", 1, 1.0))
+        # Chicken one week, mince the next
+        lines.append(("Tesco Chicken Breast Fillets 650g", 1, 6.0) if n % 2 == 0 else ("Tesco Beef Mince 500g", 1, 5.0))
+        trips.append(trip(f"2026-{d} 11:00:00", lines))
+    upload(c, {"purchases": trips})
+    ids = {i["name"]: i["id"] for i in c.get("/api/catalog").json()}
+    assert {i["name"]: i["trips"] for i in c.get("/api/catalog").json()}["Tesco Whole Milk 2L"] == 6
+
+    # Two kinds of broccoli under one generic item
+    for name in ["Tesco Tenderstem Broccoli 200g", "Tesco Broccoli Florets 360g"]:
+        r = c.patch(f"/api/catalog/{ids[name]}", json={"group": "broccoli"})
+        assert r.status_code == 200 and r.json()["group_id"]
+    catalog = {i["name"]: i for i in c.get("/api/catalog").json()}
+    broccoli = catalog["Broccoli"]
+    assert broccoli["kind"] == "group" and broccoli["trips"] == 6
+    assert catalog["Tesco Broccoli Florets 360g"]["trips"] == 3
+    assert len(c.get(f"/api/history/items/{broccoli['id']}").json()["purchases"]) == 6
+
+    # The next shop shows the generic item, weekly, instead of each kind every two weeks
+    plan = c.get("/api/next-shop").json()
+    got = {i["name"]: i for i in plan["items"]}
+    assert got["Broccoli"]["label"] == "Weekly" and got["Broccoli"]["trips"] == 6
+    assert not any("Tenderstem" in n or "Florets" in n for n in got)
+
+    # Chicken or mince: one line, pick one
+    chicken, mince = ids["Tesco Chicken Breast Fillets 650g"], ids["Tesco Beef Mince 500g"]
+    assert c.patch(f"/api/catalog/{chicken}", json={"or_set": "Protein", "kcal": 650}).status_code == 200
+    assert c.patch(f"/api/catalog/{mince}", json={"or_set": "protein", "kcal": 1100}).status_code == 200
+    plan = c.get("/api/next-shop").json()
+    protein = next(i for i in plan["items"] if i["name"] == "Protein")
+    assert protein["kind"] == "or" and protein["chosen"] is None
+    assert [(o["name"], o["due"]) for o in protein["options"]] == [
+        ("Tesco Beef Mince 500g", False), ("Tesco Chicken Breast Fillets 650g", True)]  # chicken's due; mince was last week
+    assert (protein["kcal_low"], protein["kcal_high"]) == (650, 1100)
+    assert not any(i["name"].startswith(("Tesco Chicken", "Tesco Beef")) for i in plan["items"])
+
+    after = c.post(f"/api/next-shop/choose/{protein['catalog_id']}", json={"catalog_id": mince}).json()
+    protein = next(i for i in after["items"] if i["name"] == "Protein")
+    assert protein["chosen"] == mince and (protein["kcal_low"], protein["kcal_high"]) == (1100, 1100)
+    assert c.post(f"/api/next-shop/choose/{protein['catalog_id']}", json={"catalog_id": ids["Tesco Whole Milk 2L"]}).status_code == 422
+    # Calories: a generic item without its own uses the average of its kinds
+    c.patch(f"/api/catalog/{ids['Tesco Tenderstem Broccoli 200g']}", json={"kcal": 70})
+    c.patch(f"/api/catalog/{ids['Tesco Broccoli Florets 360g']}", json={"kcal": 130})
+    plan = c.get("/api/next-shop").json()
+    assert next(i for i in plan["items"] if i["name"] == "Broccoli")["kcal_low"] == 100
+    # Clearing calories
+    assert c.patch(f"/api/catalog/{chicken}", json={"kcal": None}).json()["kcal"] is None
+
+    # A kind can't join a set (its generic item can), and a set's name can't be an item's
+    assert c.patch(f"/api/catalog/{ids['Tesco Broccoli Florets 360g']}", json={"or_set": "Protein"}).status_code == 409
+    assert c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"or_set": "Broccoli"}).status_code == 409
+    assert c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"group": "Protein"}).status_code == 409
+
+    # The typical shop, aisle by aisle
+    t = c.get("/api/typical-shop").json()
+    assert t["trips"] == 6 and t["products"] == 3.0 and t["from"] == "2026-09-05"
+    aisles = {a["aisle"]: a for a in t["aisles"]}
+    assert aisles["Dairy & eggs"]["top"] == ["Tesco Whole Milk 2L"] and aisles["Dairy & eggs"]["spend"] == 2.19
+    assert "Broccoli" in [n for a in t["aisles"] for n in a["top"]]
+
+    # Taking the kinds out again: the generic item made only to hold them goes
+    for name in ["Tesco Tenderstem Broccoli 200g", "Tesco Broccoli Florets 360g"]:
+        c.patch(f"/api/catalog/{ids[name]}", json={"group": ""})
+    names = {i["name"] for i in c.get("/api/catalog").json()}
+    assert "Broccoli" not in names and "Protein" in names
+    # Leaving a set empty removes it
+    for i in (chicken, mince):
+        c.patch(f"/api/catalog/{i}", json={"or_set": ""})
+    assert "Protein" not in {i["name"] for i in c.get("/api/catalog").json()}
+    assert c.get("/api/typical-shop").json()["trips"] == 6
+    assert TestClient(create_app(db_path=str(tmp_path / "e.db"), static_dir=str(tmp_path / "none"))).get("/api/typical-shop").json() is None
+
+
+def test_generic_item_from_an_existing_item(client):
+    ids = {i["name"]: i["id"] for i in client.get("/api/catalog").json()}
+    client.post("/api/catalog", json={"name": "Oat milk", "category": "Dairy & eggs"})
+    oat = next(i for i in client.get("/api/catalog").json() if i["name"] == "Oat milk")
+    # "Milk" already exists as an item, so it becomes the generic item
+    assert client.patch(f"/api/catalog/{oat['id']}", json={"group": "Milk"}).json()["group_id"] == ids["Milk"]
+    milk = next(i for i in client.get("/api/catalog").json() if i["name"] == "Milk")
+    assert milk["kind"] == "group"
+    assert client.patch(f"/api/catalog/{ids['Milk']}", json={"group": "Butter"}).status_code == 409  # it has kinds
+    assert client.patch(f"/api/catalog/{oat['id']}", json={"group": "Oat milk"}).status_code == 422
+    # Out again: Milk is a plain item, not deleted
+    client.patch(f"/api/catalog/{oat['id']}", json={"group": ""})
+    milk = next(i for i in client.get("/api/catalog").json() if i["name"] == "Milk")
+    assert milk["kind"] == "item"
+    # Deleting the only kind of a made-up generic item removes it too
+    client.patch(f"/api/catalog/{oat['id']}", json={"group": "Plant milk"})
+    client.delete(f"/api/catalog/{oat['id']}")
+    assert "Plant milk" not in {i["name"] for i in client.get("/api/catalog").json()}

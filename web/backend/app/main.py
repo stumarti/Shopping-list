@@ -15,7 +15,7 @@ from . import clubcard
 from .catalog import guess_aisle
 from .db import Database, category_order
 from .finder import BarcodeFinder
-from .stats import for_next_shop, group_suggestions, item_stats, shop_plan_date, weekly
+from .stats import for_next_shop, group_suggestions, item_stats, shop_plan_date, typical_shop, weekly
 from .lookup import STORES, Fetch, fill_link, http_fetch, is_barcode, link_templates, lookup_barcode, product_url
 
 USERSCRIPT_NAME = "shopping-list.user.js"
@@ -49,6 +49,9 @@ class CatalogChange(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
     category: str | None = None
     barcode: str | None = None
+    kcal: float | None = Field(default=None, ge=0, le=100_000)  # calories per pack; send null to clear
+    group: str | None = Field(default=None, max_length=80)  # the generic item this is a kind of; "" for none
+    or_set: str | None = Field(default=None, max_length=80)  # the pick-one set it's in; "" for none
 
     @field_validator("name")
     @classmethod
@@ -96,6 +99,15 @@ class AisleName(BaseModel):
 
 class AisleOrder(BaseModel):
     ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class SetChoice(BaseModel):
+    catalog_id: int | None = None  # the option picked from a pick-one set for the next shop; null to unpick
+
+
+# Which option to show first in a pick-one set: the most regular habit.
+BADGE_RANK = {"weekly": 0, "scheduled": 1, "unsure": 2, "added": 3}
+CATALOG_COLUMNS = "id, name, category, custom, barcode, barcode_source, kind, group_id, or_id, kcal"
 
 
 class FindBarcodes(BaseModel):
@@ -167,11 +179,110 @@ def create_app(
         return items
 
     def catalog_item(item_id: int) -> dict:
-        rows = db.rows("SELECT id, name, category, custom, barcode, barcode_source FROM catalog WHERE id = ?", (item_id,))
+        rows = db.rows(f"SELECT {CATALOG_COLUMNS} FROM catalog WHERE id = ?", (item_id,))
         if not rows:
             raise HTTPException(404, "That common item has gone")
         rows[0]["custom"] = bool(rows[0]["custom"])
+        rows[0]["trips"] = trip_counts().get(item_id, 0)
         return with_products(rows)[0]
+
+    def trip_counts() -> dict[int, int]:
+        """{catalog id: how many shopping trips it was on}. A generic item counts the trips any of its kinds were
+        on, and a pick-one set the trips any of its options were on."""
+        cat = {r["id"]: r for r in db.rows("SELECT id, group_id, or_id FROM catalog")}
+        trips: dict[int, set] = {}
+        for p in db.rows("SELECT DISTINCT catalog_id, store, order_ref FROM purchases WHERE catalog_id IS NOT NULL"):
+            item = cat.get(p["catalog_id"])
+            if not item:
+                continue
+            root = cat.get(item["group_id"]) or item
+            for i in {item["id"], root["id"], root["or_id"]} - {None}:
+                trips.setdefault(i, set()).add((p["store"], p["order_ref"]))
+        return {i: len(t) for i, t in trips.items()}
+
+    def kcal_map(rows: list[dict] | None = None) -> dict[int, float | None]:
+        """{catalog id: calories per pack}. A generic item without its own figure uses the average of its kinds;
+        a kind without one uses its generic item's."""
+        rows = rows if rows is not None else db.rows("SELECT id, group_id, kcal FROM catalog")
+        out = {r["id"]: r["kcal"] for r in rows}
+        kinds: dict[int, list[float]] = {}
+        for r in rows:
+            if r["group_id"] and r["kcal"] is not None:
+                kinds.setdefault(r["group_id"], []).append(r["kcal"])
+        for group_id, values in kinds.items():
+            if out.get(group_id) is None:
+                out[group_id] = round(sum(values) / len(values))
+        for r in rows:
+            if r["group_id"] and out.get(r["id"]) is None:
+                out[r["id"]] = out.get(r["group_id"])
+        return out
+
+    def set_group(conn, item_id: int, name: str):
+        """Put an item under a generic item called `name` (made if it doesn't exist), or take it out ("")."""
+        item = conn.execute("SELECT id, name, category, kind, or_id FROM catalog WHERE id = ?", (item_id,)).fetchone()
+        if item["kind"] == "or":
+            raise HTTPException(422, "A pick-one set can't go under a generic item")
+        name = " ".join(name.split())
+        if not name:
+            conn.execute("UPDATE catalog SET group_id = NULL WHERE id = ?", (item_id,))
+            return
+        name = tidy_name(name)
+        if conn.execute("SELECT 1 FROM catalog WHERE group_id = ?", (item_id,)).fetchone():
+            raise HTTPException(409, f"{item['name']} has kinds of its own, so it can't go under another item")
+        row = conn.execute("SELECT id, name, kind, group_id FROM catalog WHERE lower(name) = lower(?)", (name,)).fetchone()
+        if row and row["id"] == item_id:
+            raise HTTPException(422, "An item can't go under itself")
+        if row and row["kind"] == "or":
+            raise HTTPException(409, f"{row['name']} is a pick-one set. Choose another name for the generic item")
+        if row and row["group_id"]:
+            raise HTTPException(409, f"{row['name']} is itself a kind of something else")
+        if row:
+            group_id = row["id"]
+            conn.execute("UPDATE catalog SET kind = 'group' WHERE id = ?", (group_id,))
+        else:
+            group_id = conn.execute(
+                "INSERT INTO catalog (name, category, custom, kind, auto_group) VALUES (?, ?, 1, 'group', 1)",
+                (name, item["category"]),
+            ).lastrowid
+        # Its place in a pick-one set passes to the generic item.
+        if item["or_id"]:
+            conn.execute("UPDATE catalog SET or_id = coalesce(or_id, ?) WHERE id = ?", (item["or_id"], group_id))
+        conn.execute("UPDATE catalog SET group_id = ?, or_id = NULL WHERE id = ?", (group_id, item_id))
+
+    def set_or(conn, item_id: int, name: str):
+        """Put an item in the pick-one set called `name` (made if it doesn't exist), or take it out ("")."""
+        item = conn.execute("SELECT id, name, category, kind, group_id FROM catalog WHERE id = ?", (item_id,)).fetchone()
+        if item["kind"] == "or":
+            raise HTTPException(422, "A pick-one set can't go in another set")
+        name = " ".join(name.split())
+        if not name:
+            conn.execute("UPDATE catalog SET or_id = NULL WHERE id = ?", (item_id,))
+            return
+        if item["group_id"]:
+            group = conn.execute("SELECT name FROM catalog WHERE id = ?", (item["group_id"],)).fetchone()["name"]
+            raise HTTPException(409, f"{item['name']} is a kind of {group}. Put {group} in the set instead")
+        name = tidy_name(name)
+        row = conn.execute("SELECT id, name, kind FROM catalog WHERE lower(name) = lower(?)", (name,)).fetchone()
+        if row and row["kind"] != "or":
+            raise HTTPException(409, f"{row['name']} is already a common item. Choose another name for the set")
+        or_id = row["id"] if row else conn.execute(
+            "INSERT INTO catalog (name, category, custom, kind) VALUES (?, ?, 1, 'or')", (name, item["category"])
+        ).lastrowid
+        conn.execute("UPDATE catalog SET or_id = ? WHERE id = ?", (or_id, item_id))
+
+    def tidy_sets(conn):
+        """Remove pick-one sets with no options left, and generic items with no kinds left (one made only to hold
+        kinds goes, unless something was bought under its name; any other becomes a plain item again)."""
+        conn.execute("DELETE FROM catalog WHERE kind = 'or' AND id NOT IN (SELECT or_id FROM catalog WHERE or_id IS NOT NULL)")
+        conn.execute(
+            "DELETE FROM catalog WHERE kind = 'group' AND auto_group = 1 "
+            "AND id NOT IN (SELECT group_id FROM catalog WHERE group_id IS NOT NULL) "
+            "AND id NOT IN (SELECT catalog_id FROM purchases WHERE catalog_id IS NOT NULL)"
+        )
+        conn.execute(
+            "UPDATE catalog SET kind = 'item', auto_group = 0 WHERE kind = 'group' "
+            "AND id NOT IN (SELECT group_id FROM catalog WHERE group_id IS NOT NULL)"
+        )
 
     def known_store(store: str) -> dict:
         if store not in STORES:
@@ -231,7 +342,7 @@ def create_app(
 
     @app.get("/api/aisles")
     def list_aisles():
-        counts = {r["category"]: r["n"] for r in db.rows("SELECT category, count(*) AS n FROM catalog GROUP BY category")}
+        counts = {r["category"]: r["n"] for r in db.rows("SELECT category, count(*) AS n FROM catalog WHERE kind != 'or' GROUP BY category")}
         fallback = db.fallback_aisle()
         return [
             {"id": r["id"], "name": r["name"], "items": counts.get(r["name"], 0), "fallback": r["name"] == fallback}
@@ -308,9 +419,11 @@ def create_app(
 
     @app.get("/api/catalog")
     def get_catalog():
-        items = db.rows("SELECT id, name, category, custom, barcode, barcode_source FROM catalog")
+        items = db.rows(f"SELECT {CATALOG_COLUMNS} FROM catalog")
+        trips = trip_counts()
         for i in items:
             i["custom"] = bool(i["custom"])
+            i["trips"] = trips.get(i["id"], 0)
         return sort_items(with_products(items))
 
     @app.post("/api/catalog", status_code=201)
@@ -346,7 +459,9 @@ def create_app(
     @app.patch("/api/catalog/{item_id}")
     def change_catalog_item(item_id: int, body: CatalogChange):
         catalog_item(item_id)
-        changes = body.model_dump(exclude_none=True)
+        changes = body.model_dump(exclude_none=True, exclude={"kcal", "group", "or_set"})
+        if "kcal" in body.model_fields_set:
+            changes["kcal"] = None if body.kcal is None else round(body.kcal)
         if "category" in changes:
             changes["category"] = aisle(changes["category"])
         if "name" in changes:
@@ -363,6 +478,13 @@ def create_app(
                     raise HTTPException(409, f"{changes['name']} is already a common item")
                 cols = ", ".join(f"{k} = ?" for k in changes)
                 conn.execute(f"UPDATE catalog SET {cols} WHERE id = ?", (*changes.values(), item_id))
+        if body.group is not None or body.or_set is not None:
+            with db.tx() as conn:
+                if body.group is not None:
+                    set_group(conn, item_id, body.group)
+                if body.or_set is not None:
+                    set_or(conn, item_id, body.or_set)
+                tidy_sets(conn)
         return catalog_item(item_id)
 
     @app.post("/api/catalog/clear")
@@ -414,6 +536,7 @@ def create_app(
     def remove_from_catalog(item_id: int):
         with db.tx() as conn:
             conn.execute("DELETE FROM catalog WHERE id = ?", (item_id,))
+            tidy_sets(conn)
 
     @app.put("/api/catalog/{item_id}/products/{store}")
     def set_store_product(item_id: int, store: str, body: StoreProduct):
@@ -642,9 +765,11 @@ def create_app(
 
     def usual_items() -> list[dict]:
         """Every common item that has purchases, with its summary (how often, when next, prices)."""
+        # Kinds count towards their generic item: buying tenderstem one week and florets the next is buying broccoli.
         rows = db.rows(
-            "SELECT p.catalog_id, c.name, c.category, p.store, p.order_ref, p.bought_on, p.qty, p.unit_price "
-            "FROM purchases p JOIN catalog c ON c.id = p.catalog_id ORDER BY p.bought_at, p.id"
+            "SELECT r.id AS catalog_id, r.name, r.category, p.store, p.order_ref, p.bought_on, p.qty, p.unit_price "
+            "FROM purchases p JOIN catalog c ON c.id = p.catalog_id JOIN catalog r ON r.id = coalesce(c.group_id, c.id) "
+            "ORDER BY p.bought_at, p.id"
         )
         by_item: dict[int, list[dict]] = {}
         for r in rows:
@@ -663,9 +788,22 @@ def create_app(
 
     # The next shop: when, and what it needs
 
+    def shop_plan():
+        return shop_plan_date([r["d"] for r in db.rows("SELECT DISTINCT bought_on AS d FROM purchases")], today())
+
     @app.get("/api/next-shop")
     def next_shop():
-        plan = shop_plan_date([r["d"] for r in db.rows("SELECT DISTINCT bought_on AS d FROM purchases")], today())
+        plan = shop_plan()
+        cat = {r["id"]: r for r in db.rows("SELECT id, name, category, kind, group_id, or_id, kcal FROM catalog")}
+        by_name = {r["name"].lower(): r["id"] for r in cat.values()}
+        kcal = kcal_map(list(cat.values()))
+        trips = trip_counts()
+
+        def extra(catalog_id: int | None) -> dict:
+            k = kcal.get(catalog_id) if catalog_id else None
+            return {"trips": trips.get(catalog_id, 0) if catalog_id else 0, "kind": "item", "kcal_low": k, "kcal_high": k,
+                    "options": None, "chosen": None}
+
         items = []
         skipped = []
         added = db.rows("SELECT id, name, category, qty FROM list_items WHERE done = 0")
@@ -673,27 +811,121 @@ def create_app(
         if plan:
             shop = datetime.date.fromisoformat(plan["date"])
             skips = {r["catalog_id"] for r in db.rows("SELECT catalog_id FROM shop_skips WHERE shop_date = ?", (plan["date"],))}
-            for u in usual_items():
+            usual = usual_items()
+            for u in usual:
                 pick = for_next_shop(u, shop, plan["every_days"], today())
                 if not pick or u["name"].lower() in added_names:
                     continue
                 entry = {
                     "catalog_id": u["catalog_id"], "list_item_id": None, "name": u["name"], "category": u["category"],
-                    "qty": max(1, round(u["usual_qty"] or 1)), **pick,
+                    "qty": max(1, round(u["usual_qty"] or 1)), **pick, **extra(u["catalog_id"]),
                 }
                 (skipped if u["catalog_id"] in skips else items).append(entry)
+            items, skipped = pick_one_sets(items, skipped, skips, plan["date"], cat, kcal, trips, usual)
         for a in added:
             items.append({
                 "catalog_id": None, "list_item_id": a["id"], "name": a["name"], "category": a["category"], "qty": a["qty"],
-                "badge": "added", "label": "Added", "detail": "You added this",
+                "badge": "added", "label": "Added", "detail": "You added this", **extra(by_name.get(a["name"].lower())),
             })
         return {"shop": plan, "items": sort_items(items), "skipped": sort_items(skipped)}
+
+    def pick_one_sets(items, skipped, skips, shop_date, cat, kcal, trips, usual):
+        """Fold the options of each pick-one set (two or more options) that are due into one line for the set."""
+        options_of: dict[int, list[int]] = {}
+        for r in cat.values():
+            if r["or_id"] and not r["group_id"] and r["or_id"] in cat:
+                options_of.setdefault(r["or_id"], []).append(r["id"])
+        options_of = {k: v for k, v in options_of.items() if len(v) >= 2}
+        if not options_of:
+            return items, skipped
+        set_of = {i: s for s, ids in options_of.items() for i in ids}
+        due: dict[int, list[dict]] = {}
+        kept = []
+        for e in items:
+            if e["catalog_id"] in set_of:
+                due.setdefault(set_of[e["catalog_id"]], []).append(e)
+            else:
+                kept.append(e)
+        chosen_for = {r["or_id"]: r["catalog_id"] for r in db.rows(
+            "SELECT or_id, catalog_id FROM shop_choices WHERE shop_date = ?", (shop_date,))}
+        usual_qty = {u["catalog_id"]: max(1, round(u["usual_qty"] or 1)) for u in usual}
+        for set_id, entries in due.items():
+            best = min(entries, key=lambda e: (BADGE_RANK.get(e["badge"], 9), -e["trips"]))
+            due_ids = {e["catalog_id"] for e in entries}
+            options = [
+                {"catalog_id": i, "name": cat[i]["name"], "trips": trips.get(i, 0), "due": i in due_ids,
+                 "qty": usual_qty.get(i, 1), "kcal": kcal.get(i)}
+                for i in sorted(options_of[set_id], key=lambda i: (-trips.get(i, 0), cat[i]["name"].lower()))
+            ]
+            chosen = next((o for o in options if o["catalog_id"] == chosen_for.get(set_id)), None)
+            known = [o["kcal"] for o in options if o["kcal"] is not None]
+            entry = {
+                "catalog_id": set_id, "list_item_id": None, "name": cat[set_id]["name"], "category": cat[set_id]["category"],
+                "qty": chosen["qty"] if chosen else best["qty"], "badge": best["badge"], "label": best["label"],
+                "detail": best["detail"] if len(entries) == 1 else f"{len(entries)} of these are due",
+                "trips": trips.get(set_id, 0), "kind": "or", "options": options,
+                "chosen": chosen["catalog_id"] if chosen else None,
+                "kcal_low": chosen["kcal"] if chosen else (min(known) if known else None),
+                "kcal_high": chosen["kcal"] if chosen else (max(known) if known else None),
+            }
+            (skipped if set_id in skips else kept).append(entry)
+        return kept, skipped
+
+    @app.post("/api/next-shop/choose/{or_id}")
+    def choose_for_next_shop(or_id: int, body: SetChoice):
+        """Pick one option from a pick-one set for the next shop (or unpick it)."""
+        if catalog_item(or_id)["kind"] != "or":
+            raise HTTPException(422, "That isn't a pick-one set")
+        plan = shop_plan()
+        if not plan:
+            raise HTTPException(409, "There's no next shop planned yet")
+        with db.tx() as conn:
+            if body.catalog_id is None:
+                conn.execute("DELETE FROM shop_choices WHERE or_id = ? AND shop_date = ?", (or_id, plan["date"]))
+            else:
+                if not conn.execute("SELECT 1 FROM catalog WHERE id = ? AND or_id = ?", (body.catalog_id, or_id)).fetchone():
+                    raise HTTPException(422, "That isn't one of the set's options")
+                conn.execute(
+                    "INSERT INTO shop_choices (or_id, shop_date, catalog_id) VALUES (?, ?, ?) "
+                    "ON CONFLICT (or_id, shop_date) DO UPDATE SET catalog_id = excluded.catalog_id",
+                    (or_id, plan["date"], body.catalog_id),
+                )
+            conn.execute("DELETE FROM shop_choices WHERE shop_date < ?", (today().isoformat(),))
+        return next_shop()
+
+    @app.get("/api/typical-shop")
+    def typical():
+        """What a typical shop looks like, aisle by aisle, over the last year of trips (or all of them)."""
+        query = (
+            "SELECT p.store || '|' || p.order_ref AS trip, p.bought_on, p.name, p.qty, p.unit_price, p.catalog_id, "
+            "r.name AS root_name, r.category AS root_category FROM purchases p "
+            "LEFT JOIN catalog c ON c.id = p.catalog_id LEFT JOIN catalog r ON r.id = coalesce(c.group_id, c.id)"
+        )
+        since = (today() - datetime.timedelta(days=365)).isoformat()
+        rows = db.rows(query + " WHERE p.bought_on >= ?", (since,)) or db.rows(query)
+        kcal = kcal_map()
+        lines = []
+        for r in rows:
+            k = kcal.get(r["catalog_id"]) if r["catalog_id"] else None
+            lines.append({
+                "trip": r["trip"],
+                "aisle": r["root_category"] or guess(r["name"]),
+                "name": r["root_name"] or r["name"],
+                "qty": r["qty"],
+                "spend": r["unit_price"] * r["qty"] if r["unit_price"] is not None else None,
+                "kcal": k * r["qty"] if k is not None else None,
+            })
+        out = typical_shop(lines, db.aisle_names())
+        if out:
+            days = sorted(r["bought_on"] for r in rows)
+            out.update({"from": days[0], "to": days[-1]})
+        return out
 
     @app.post("/api/next-shop/skip/{catalog_id}")
     def skip_for_next_shop(catalog_id: int):
         """Take an item off the next shop. It's back for the one after."""
         catalog_item(catalog_id)
-        plan = shop_plan_date([r["d"] for r in db.rows("SELECT DISTINCT bought_on AS d FROM purchases")], today())
+        plan = shop_plan()
         if not plan:
             raise HTTPException(409, "There's no next shop planned yet")
         with db.tx() as conn:
@@ -724,8 +956,9 @@ def create_app(
         item = catalog_item(catalog_id)
         rows = db.rows(
             "SELECT store, order_ref, bought_on, bought_at, name AS bought_as, qty, unit_price, source "
-            "FROM purchases WHERE catalog_id = ? ORDER BY bought_at, id",
-            (catalog_id,),
+            "FROM purchases WHERE catalog_id = ? OR catalog_id IN (SELECT id FROM catalog WHERE group_id = ?) "
+            "ORDER BY bought_at, id",
+            (catalog_id, catalog_id),
         )
         return {
             "item": {"id": item["id"], "name": item["name"]},
