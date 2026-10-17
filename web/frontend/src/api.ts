@@ -7,6 +7,16 @@ export type CatalogItem = {
   custom: boolean;
   barcode: string;
   barcode_source: string;
+  /** "item"; "group": a generic item with kinds under it; "or": a pick-one set (never bought itself). */
+  kind: "item" | "group" | "or";
+  /** The generic item this is a kind of. */
+  group_id: number | null;
+  /** The pick-one set this is in. */
+  or_id: number | null;
+  /** Calories per pack. */
+  kcal: number | null;
+  /** Shopping trips it was on (a generic item counts its kinds'). */
+  trips: number;
   products: Products;
 };
 export type Aisle = { id: number; name: string; items: number; fallback: boolean };
@@ -68,6 +78,7 @@ export type ClubcardResult = {
   to: string;
   saved_as: string;
 };
+export type ShopOption = { catalog_id: number; name: string; trips: number; due: boolean; qty: number; kcal: number | null };
 export type ShopItem = {
   catalog_id: number | null;
   list_item_id: number | null;
@@ -77,12 +88,34 @@ export type ShopItem = {
   badge: "weekly" | "scheduled" | "unsure" | "added";
   label: string;
   detail: string;
+  trips: number;
+  kind: "item" | "or";
+  /** Calories per pack; a pick-one set not yet picked gives its options' range. */
+  kcal_low: number | null;
+  kcal_high: number | null;
+  /** A pick-one set's options, most bought first, and the one picked for this shop. */
+  options: ShopOption[] | null;
+  chosen: number | null;
 };
+export type TypicalAisle = { aisle: string; products: number; units: number; spend: number | null; kcal: number | null; top: string[] };
+export type TypicalShop = {
+  trips: number;
+  from: string;
+  to: string;
+  products: number;
+  units: number;
+  spend: number | null;
+  kcal: number | null;
+  kcal_known: number;
+  aisles: TypicalAisle[];
+} | null;
 export type NextShop = {
   shop: { date: string; every_days: number; last_shop: string; reason: string } | null;
   items: ShopItem[];
   skipped: ShopItem[];
 };
+/** A change to a common item. group: the generic item it's a kind of ("" for none); or_set: its pick-one set. */
+export type CommonChange = Partial<Pick<CatalogItem, "name" | "category" | "barcode" | "kcal">> & { group?: string; or_set?: string };
 export type Product = { barcode: string; name: string; brand: string; quantity: string; category: string; source: string };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -118,7 +151,7 @@ export const api = {
   remove: (id: number) => call<void>(`/list/${id}`, { method: "DELETE" }),
   clearDone: () => call<{ removed: number }>("/list/clear-done", { method: "POST" }),
   forget: (id: number) => call<void>(`/catalog/${id}`, { method: "DELETE" }),
-  editCommon: (id: number, change: Partial<Pick<CatalogItem, "name" | "category" | "barcode">>) =>
+  editCommon: (id: number, change: CommonChange) =>
     call<CatalogItem>(`/catalog/${id}`, json("PATCH", change)),
   setProduct: (catalogId: number, store: string, url: string) =>
     call<CatalogItem>(`/catalog/${catalogId}/products/${store}`, json("PUT", { url })),
@@ -137,6 +170,10 @@ export const api = {
   findBarcodes: (retry = false) => call<FinderStatus>("/barcodes/find", json("POST", { retry })),
   stopFinding: () => call<FinderStatus>("/barcodes/find/stop", { method: "POST" }),
   nextShop: () => call<NextShop>("/next-shop"),
+  /** Pick one option of a pick-one set for the next shop (null to unpick). */
+  chooseForShop: (setId: number, catalogId: number | null) =>
+    call<NextShop>(`/next-shop/choose/${setId}`, json("POST", { catalog_id: catalogId })),
+  typicalShop: () => call<TypicalShop>("/typical-shop"),
   skipForShop: (catalogId: number) => call<NextShop>(`/next-shop/skip/${catalogId}`, { method: "POST" }),
   unskipForShop: (catalogId: number) => call<NextShop>(`/next-shop/skip/${catalogId}`, { method: "DELETE" }),
   clearCommon: () => call<{ removed: number }>("/catalog/clear", { method: "POST" }),

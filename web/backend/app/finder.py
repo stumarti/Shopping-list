@@ -84,7 +84,7 @@ class BarcodeFinder:
 
     def _todo(self, retry: bool) -> list[dict]:
         rows = self.db.rows(
-            "SELECT id, name FROM catalog WHERE barcode = '' AND custom = 1 AND (? OR barcode_checked_at = '') ORDER BY id", (int(retry),)
+            "SELECT id, name FROM catalog WHERE barcode = '' AND custom = 1 AND kind != 'or' AND (? OR barcode_checked_at = '') ORDER BY id", (int(retry),)
         )
         return [r for r in rows if worth_searching(r["name"])]
 

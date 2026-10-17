@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { api, itemLinks, type CatalogItem, type ItemHistory, type Links } from "./api";
+import { Fragment, useEffect, useState } from "react";
+import { api, itemLinks, type CatalogItem, type CommonChange, type ItemHistory, type Links } from "./api";
+import { byTrips, OrderToggle, useOrder } from "./Order";
 import WeeklyChart from "./WeeklyChart";
 
 type Props = {
@@ -16,37 +17,68 @@ const fmt = (iso: string, opts: Intl.DateTimeFormatOptions = { day: "numeric", m
   day(iso).toLocaleDateString("en-IE", opts);
 const daysFromToday = (iso: string) => Math.round((day(iso).getTime() - day(new Date().toISOString()).getTime()) / 86_400_000);
 
-/** Your common items, aisle by aisle. Tap one for its weekly history and when you'll want it next. */
+/** Your common items, most bought first or aisle by aisle. Kinds of one thing sit under their generic item
+ * (Broccoli: tenderstem, florets). Tap one for its weekly history and when you'll want it next. */
 export default function Manage({ catalog, categories, links, groupBy, run }: Props) {
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState<number | null>(null);
+  const [order, setOrder] = useOrder();
 
+  const sets = new Map(catalog.filter((c) => c.kind === "or").map((c) => [c.id, c.name]));
+  const kindsOf = (id: number) => byTrips(catalog.filter((c) => c.group_id === id));
+  const top = catalog.filter((c) => c.kind !== "or" && c.group_id === null);
   const f = filter.trim().toLowerCase();
-  const shown = f ? catalog.filter((c) => c.name.toLowerCase().includes(f) || c.barcode.includes(f)) : catalog;
+  const matches = (c: CatalogItem) => c.name.toLowerCase().includes(f) || c.barcode.includes(f);
+  const shown = f ? top.filter((c) => matches(c) || kindsOf(c.id).some(matches)) : top;
+  const groups: [string, CatalogItem[]][] =
+    order === "aisle" ? groupBy(shown).map(([aisle, items]) => [aisle, byTrips(items)]) : [["", byTrips(shown)]];
+  const count = catalog.filter((c) => c.kind !== "or").length;
+
+  const row = (item: CatalogItem, kind = false) => (
+    <li key={item.id} className={`${open === item.id ? "open" : ""}${kind ? " kind" : ""}`}>
+      <button className="common-name" aria-expanded={open === item.id} onClick={() => setOpen(open === item.id ? null : item.id)}>
+        <span>
+          {item.name}
+          {item.or_id !== null && sets.has(item.or_id) && <span className="tag-or"> or {sets.get(item.or_id)}</span>}
+          {order === "often" && !kind && <span className="muted aisle-note"> · {item.category}</span>}
+        </span>
+        <span className="common-right">
+          <span className="muted trips">{item.trips > 0 ? `${item.trips}×` : ""}</span>
+          <span className="chev" aria-hidden="true">
+            {open === item.id ? "▾" : "▸"}
+          </span>
+        </span>
+      </button>
+      {open === item.id && (
+        <ItemDetail item={item} catalog={catalog} categories={categories} links={links} run={run} onGone={() => setOpen(null)} />
+      )}
+    </li>
+  );
 
   return (
     <section aria-labelledby="common-heading">
       <div className="section-head">
         <h2 id="common-heading">Common items</h2>
-        <span className="muted">
-          {catalog.length} items
-          {catalog.length > 0 && (
-            <>
-              {" · "}
-              <button
-                className="link danger"
-                onClick={() => {
-                  if (confirm(`Remove all ${catalog.length} common items? Your list and purchase history stay, and Settings → Rebuild from history can bring them back.`))
-                    void run(api.clearCommon);
-                }}
-              >
-                Clear all
-              </button>
-            </>
-          )}
-        </span>
+        {count > 0 && <OrderToggle order={order} setOrder={setOrder} />}
       </div>
-      {catalog.length === 0 ? (
+      <p className="muted">
+        {count} items
+        {count > 0 && (
+          <>
+            {" · "}
+            <button
+              className="link danger"
+              onClick={() => {
+                if (confirm(`Remove all ${count} common items? Your list and purchase history stay, and Settings → Rebuild from history can bring them back.`))
+                  void run(api.clearCommon);
+              }}
+            >
+              Clear all
+            </button>
+          </>
+        )}
+      </p>
+      {count === 0 ? (
         <p className="empty">
           No common items yet. Upload your Tesco data, or add some, in <a href="#settings">Settings</a>.
         </p>
@@ -60,38 +92,43 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
           aria-label="Find a common item"
         />
       )}
-      {groupBy(shown).map(([cat, items]) => (
-        <div key={cat} className="group">
-          <h3>
-            {cat} <span className="count">{items.length}</span>
-          </h3>
+      {groups.map(([cat, items]) => (
+        <div key={cat || "all"} className="group">
+          {cat && (
+            <h3>
+              {cat} <span className="count">{items.length}</span>
+            </h3>
+          )}
           <ul className="common-list">
             {items.map((item) => (
-              <li key={item.id} className={open === item.id ? "open" : ""}>
-                <button className="common-name" aria-expanded={open === item.id} onClick={() => setOpen(open === item.id ? null : item.id)}>
-                  <span>{item.name}</span>
-                  <span className="chev" aria-hidden="true">
-                    {open === item.id ? "▾" : "▸"}
-                  </span>
-                </button>
-                {open === item.id && <ItemDetail item={item} categories={categories} links={links} run={run} onGone={() => setOpen(null)} />}
-              </li>
+              <Fragment key={item.id}>
+                {row(item)}
+                {kindsOf(item.id).map((k) => row(k, true))}
+              </Fragment>
             ))}
           </ul>
         </div>
       ))}
+      {count > 0 && (
+        <p className="muted hint">
+          The number is how many shopping trips each item was on. Open an item to group kinds of one thing under a generic item (Kind of:
+          Broccoli), or to put things where one will do into a pick-one set (Pick one of: Protein).
+        </p>
+      )}
     </section>
   );
 }
 
 function ItemDetail({
   item,
+  catalog,
   categories,
   links,
   run,
   onGone,
 }: {
   item: CatalogItem;
+  catalog: CatalogItem[];
   categories: string[];
   links: Links | null;
   run: Props["run"];
@@ -101,6 +138,13 @@ function ItemDetail({
   const [showTable, setShowTable] = useState(false);
   const [name, setName] = useState(item.name);
   const [barcode, setBarcode] = useState(item.barcode);
+  const groupName = (id: number | null) => catalog.find((c) => c.id === id)?.name ?? "";
+  const [kcal, setKcal] = useState(item.kcal === null ? "" : String(item.kcal));
+  const [group, setGroup] = useState(groupName(item.group_id));
+  const [orSet, setOrSet] = useState(groupName(item.or_id));
+  const kinds = catalog.filter((c) => c.group_id === item.id);
+  const generics = catalog.filter((c) => c.kind !== "or" && c.group_id === null && c.id !== item.id);
+  const setNames = catalog.filter((c) => c.kind === "or");
 
   useEffect(() => {
     api.itemHistory(item.id).then(setHistory, () => setHistory(null));
@@ -108,15 +152,26 @@ function ItemDetail({
   useEffect(() => {
     setName(item.name);
     setBarcode(item.barcode);
-  }, [item.name, item.barcode]);
+    setKcal(item.kcal === null ? "" : String(item.kcal));
+    setGroup(groupName(item.group_id));
+    setOrSet(groupName(item.or_id));
+  }, [item.name, item.barcode, item.kcal, item.group_id, item.or_id]);
 
-  const save = (change: Partial<Pick<CatalogItem, "name" | "category" | "barcode">>) =>
+  const save = (change: CommonChange) =>
     run(() => api.editCommon(item.id, change)).then((ok) => {
       if (!ok) {
         setName(item.name);
         setBarcode(item.barcode);
+        setKcal(item.kcal === null ? "" : String(item.kcal));
+        setGroup(groupName(item.group_id));
+        setOrSet(groupName(item.or_id));
       }
     });
+  const saveKcal = () => {
+    const value = kcal.trim() === "" ? null : Math.round(Number(kcal));
+    if (value !== null && !(value >= 0)) return setKcal(item.kcal === null ? "" : String(item.kcal));
+    if (value !== item.kcal) void save({ kcal: value });
+  };
 
   const s = history?.summary;
   const bought = history?.purchases.length ?? 0;
@@ -195,6 +250,86 @@ function ItemDetail({
             ))}
           </select>
         </label>
+        <label>
+          <span>Calories per pack</span>
+          <input
+            value={kcal}
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="Not set"
+            onChange={(e) => setKcal(e.target.value.replace(/[^\d]/g, ""))}
+            onBlur={saveKcal}
+          />
+        </label>
+        {kinds.length > 0 ? (
+          <div className="kinds">
+            <span>Kinds of {item.name}</span>
+            <ul>
+              {kinds.map((k) => (
+                <li key={k.id}>
+                  <span>
+                    {k.name}
+                    {k.kcal !== null && <span className="muted"> · {k.kcal} kcal</span>}
+                  </span>
+                  <button className="link" onClick={() => run(() => api.editCommon(k.id, { group: "" }))}>
+                    Take out
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <select
+              value=""
+              aria-label={`Add a kind of ${item.name}`}
+              onChange={(e) => e.target.value && run(() => api.editCommon(Number(e.target.value), { group: item.name }))}
+            >
+              <option value="">Add a kind of {item.name}…</option>
+              {generics
+                .filter((c) => !catalog.some((k) => k.group_id === c.id))
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        ) : (
+          <label>
+            <span>Kind of</span>
+            <input
+              value={group}
+              maxLength={80}
+              list={`generics-${item.id}`}
+              placeholder="e.g. Broccoli, to group kinds of one thing"
+              onChange={(e) => setGroup(e.target.value)}
+              onBlur={() => group.trim() !== groupName(item.group_id) && save({ group: group.trim() })}
+            />
+            <datalist id={`generics-${item.id}`}>
+              {generics.map((c) => (
+                <option key={c.id} value={c.name} />
+              ))}
+            </datalist>
+          </label>
+        )}
+        {item.group_id === null ? (
+          <label>
+            <span>Pick one of</span>
+            <input
+              value={orSet}
+              maxLength={80}
+              list={`sets-${item.id}`}
+              placeholder="e.g. Protein: shows as one line, you pick one"
+              onChange={(e) => setOrSet(e.target.value)}
+              onBlur={() => orSet.trim() !== groupName(item.or_id) && save({ or_set: orSet.trim() })}
+            />
+            <datalist id={`sets-${item.id}`}>
+              {setNames.map((c) => (
+                <option key={c.id} value={c.name} />
+              ))}
+            </datalist>
+          </label>
+        ) : (
+          <p className="muted small">Pick-one sets go on {groupName(item.group_id)}, not on its kinds.</p>
+        )}
         <label>
           <span>
             Barcode

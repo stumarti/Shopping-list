@@ -1181,3 +1181,272 @@ progress {
 .hint .badge {
   font-size: 0.7rem;
 }
+
+/* Most bought / By aisle */
+.order {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  font-size: 0.8rem;
+}
+
+.order button {
+  background: none;
+  border: none;
+  padding: 4px 10px;
+  color: var(--muted);
+}
+
+.order button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+/* Common items: trips, kinds under a generic item, pick-one sets */
+.common-right {
+  display: inline-flex;
+  gap: 8px;
+  align-items: baseline;
+  flex: none;
+}
+
+.trips {
+  margin: 0;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.aisle-note {
+  font-size: 0.85rem;
+}
+
+.common-list li.kind {
+  border-top-style: dashed;
+}
+
+.common-list li.kind .common-name {
+  padding-left: 18px;
+  font-size: 0.95rem;
+}
+
+.common-list li.kind .common-name > span:first-child::before {
+  content: "↳ ";
+  color: var(--muted);
+}
+
+.tag-or {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--unsure-ink);
+}
+
+.kinds {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.kinds ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  color: var(--ink);
+}
+
+.kinds li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--line);
+}
+
+.kinds select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+/* Next shop: pick one of a set */
+.badge.pick {
+  background: var(--unsure-ink);
+  color: var(--surface);
+}
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 2px;
+}
+
+.options .or {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--unsure-ink);
+}
+
+.option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.85rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.option.on {
+  background: var(--unsure-ink);
+  border-color: var(--unsure-ink);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.due-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.option.on .due-dot {
+  background: var(--surface);
+}
+
+/* Next shop: calories */
+.kcal {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--ground);
+  display: grid;
+  gap: 6px;
+}
+
+.kcal p {
+  margin: 0;
+}
+
+.kcal-line strong {
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.meter {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.meter span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.meter span.high {
+  opacity: 0.35;
+}
+
+.kcal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.kcal-foot input {
+  width: 56px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px 8px;
+}
+
+/* Your typical shop, aisle by aisle */
+.typical {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.typical li {
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+
+.typical-name {
+  display: grid;
+  min-width: 0;
+}
+
+.typical-name .muted {
+  margin: 0;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--ground);
+  overflow: hidden;
+}
+
+.bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.typical-value {
+  display: grid;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+}
+
+.typical-value .muted {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 480px) {
+  .typical li {
+    grid-template-columns: 1fr auto;
+  }
+
+  .typical .bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

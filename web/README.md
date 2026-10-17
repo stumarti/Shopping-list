@@ -3,6 +3,11 @@
 A shared shopping list in one Docker container: a React page served by a FastAPI backend, with the list kept in SQLite. It comes with a browser helper that fills your Tesco or Dunnes basket.
 
 - **Next shop** (the first page): when you'll probably shop next (from your past trips: your usual gap between shops and the day you usually go) and what you'll need, aisle by aisle. Each item has a badge: **Weekly**, **Every 2 weeks** (or however often it runs) for steady habits, **Not sure** for things you buy unevenly or now and then, and **Added** for what you've added yourself. Tap × to take something off this shop (it's back for the next one; **Undo** and **Put back** are there if you change your mind). An item is on when it's expected before about halfway to the shop after, so it won't run out in between.
+- **Most bought first**: Next shop and Common items list the things you buy most often first. **By aisle** (top right of each) switches to aisle order; each device remembers its choice.
+- **Kinds of one thing**: open an item in Common items and set **Kind of** (e.g. *Broccoli* for tenderstem and florets). The kinds sit under one generic item, their purchases count together, and the next shop asks for *Broccoli* once instead of each kind every other week. Take a kind out again from its generic item.
+- **Pick one**: set **Pick one of** (e.g. *Protein*) on things where one will do in a week, such as chicken, mince or salmon. When any of them is due, the next shop shows one line with the options (a dot marks the ones due); tap the one you'll get.
+- **Calories**: set **Calories per pack** on common items and the next shop adds them up, against about 2,250 kcal a person a day for the number of people you enter. A generic item without its own figure uses the average of its kinds; a pick-one set not yet picked shows the range.
+- **Your typical shop** (under the next shop): products and spend per shop in each aisle, averaged over your trips in the last year, with the things you buy most there.
 - **No starter items**: your common items come from what you upload, import or add.
 - **Common items**, aisle by aisle. Tap one to see the weeks you bought it (a square per week, four to a column so habits line up, shaded by month, filled when you bought it), when it's expected next, how often you buy it, what it costs, and every purchase; and to rename it, move it, set its barcode or delete it.
 - **Settings** (top right): upload your Tesco data, **Find barcodes** for your items in Open Food Facts, set up your **aisles** (rename, reorder, add, remove), add common items in bulk, and **Start again**: remove all common items, then **Rebuild from history** (every product from an online order, and anything bought on two or more trips). **Clear all** is also at the top of Common items. Clearing never touches your list, purchase history or uploaded files.
@@ -172,7 +177,8 @@ web/
     App.tsx            the page and the My list tab
     Shop.tsx           the Shop online tab
     History.tsx        Past shopping: uploads, what you buy, how often, prices
-    Manage.tsx         the Common items tab: items by aisle, and each item's history
+    Manage.tsx         the Common items tab: items (most bought first or by aisle), kinds, sets, each item's history
+    Order.tsx          the Most bought / By aisle switch
     WeeklyChart.tsx    the weeks-bought grid
     Settings.tsx       upload, find barcodes, aisles, add items
     api.ts             calls to /api
@@ -187,7 +193,7 @@ web/
 | GET | `/api/catalog` | Common items in aisle order, with their saved store products |
 | POST | `/api/catalog` | Add a common item `{name, category, barcode}` |
 | POST | `/api/catalog/bulk` | Add many `{text, category}`, one per line; returns what was added and skipped |
-| PATCH | `/api/catalog/{id}` | Change `{name, category, barcode}` |
+| PATCH | `/api/catalog/{id}` | Change `{name, category, barcode, kcal}`; `group` puts it under a generic item by name (`""` takes it out), `or_set` puts it in a pick-one set |
 | DELETE | `/api/catalog/{id}` | Forget a common item |
 | POST | `/api/catalog/clear` | Remove all common items (the list and history stay) |
 | POST | `/api/catalog/rebuild` | Make common items again from the purchase history |
@@ -204,6 +210,8 @@ web/
 | POST | `/api/history/tesco/clubcard` | Upload Tesco's Clubcard data file (raw `.json` or `.zip` body) |
 | GET | `/api/next-shop` | The next shop's likely date and reason, what it needs (with badges), and what you took off |
 | POST / DELETE | `/api/next-shop/skip/{catalog_id}` | Take an item off the next shop / put it back |
+| POST | `/api/next-shop/choose/{set_id}` | Pick one option of a pick-one set for the next shop `{catalog_id}` (`null` to unpick) |
+| GET | `/api/typical-shop` | A typical shop over the last year: products, spend and calories per shop, aisle by aisle |
 | GET | `/api/history` | Imported trips, newest first, and the items bought most often: trips, about how often, usual quantity, prices |
 | GET | `/api/history/items/{id}` | Every purchase of one common item: when, quantity, price each, where |
 | GET | `/api/aisles` | Aisles in order, with how many items each has |
