@@ -1450,3 +1450,63 @@ progress {
     grid-row: 2;
   }
 }
+
+/* Timing worked out for a kind */
+.kind-note {
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+  color: var(--scheduled-ink);
+}
+
+.by-kind {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.by-kind li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  border-top: 1px solid var(--line);
+}
+
+.by-kind li:first-child {
+  border-top: none;
+}
+
+/* Next shop: the list on the left, the progress bars on the right */
+main.wide {
+  max-width: 1120px;
+}
+
+.shop-layout {
+  display: grid;
+  gap: 0 24px;
+}
+
+.shop-main,
+.shop-side {
+  min-width: 0;
+}
+
+@media (min-width: 880px) {
+  .shop-layout {
+    grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr);
+    align-items: start;
+  }
+
+  .shop-side {
+    position: sticky;
+    top: 0;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding-bottom: 24px;
+  }
+}
+
+.shop-side .kcal {
+  margin-top: 8px;
+}

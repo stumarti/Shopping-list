@@ -64,7 +64,13 @@ export type History = {
 export type ItemHistory = {
   item: { id: number; name: string };
   summary: ItemSummary;
-  weekly: { week: string; qty: number; trips: number }[];
+  /** Set when the timing covers a generic item and its kinds (this item is one of them, or has some). */
+  kind: { id: number; name: string; kinds: number } | null;
+  /** For a kind: how often this product itself was bought. */
+  product: { trips: number; last_bought: string | null } | null;
+  /** For a generic item with kinds: each kind's own count and price. */
+  by_kind: { id: number; name: string; trips: number; last_bought: string; price: PriceSummary | null }[];
+  weekly: { week: string; qty: number; trips: number; kinds?: string[] }[];
   purchases: { store: string; bought_on: string; bought_at: string; bought_as: string; qty: number; unit_price: number | null; source: string }[];
 };
 export type ClubcardResult = {

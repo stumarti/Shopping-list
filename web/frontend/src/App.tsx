@@ -155,7 +155,7 @@ export default function App() {
   };
 
   return (
-    <main>
+    <main className={tab === "list" ? "wide" : undefined}>
       <header>
         <div className="title-row">
           <h1>Shopping list</h1>

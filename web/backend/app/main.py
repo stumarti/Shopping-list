@@ -952,19 +952,51 @@ def create_app(
 
     @app.get("/api/history/items/{catalog_id}")
     def item_history(catalog_id: int):
-        """Every time this item was bought, oldest first, with what it cost, plus the summary."""
+        """Every time this item was bought, oldest first, with what it cost, plus the summary.
+
+        Timing is worked out for the kind where there is one: for a kind of something (Tenderstem, a kind of
+        Broccoli) and for the generic item itself, every kind's purchases count, because buying florets one week
+        and tenderstem the next is buying broccoli every week. Prices stay per product: for a kind, its own;
+        for a generic item, one line per kind, since a mix of kinds' prices means little."""
         item = catalog_item(catalog_id)
+        root = catalog_item(item["group_id"]) if item.get("group_id") else item
         rows = db.rows(
-            "SELECT store, order_ref, bought_on, bought_at, name AS bought_as, qty, unit_price, source "
-            "FROM purchases WHERE catalog_id = ? OR catalog_id IN (SELECT id FROM catalog WHERE group_id = ?) "
-            "ORDER BY bought_at, id",
-            (catalog_id, catalog_id),
+            "SELECT p.catalog_id, c.name AS kind_name, p.store, p.order_ref, p.bought_on, p.bought_at, "
+            "p.name AS bought_as, p.qty, p.unit_price, p.source "
+            "FROM purchases p JOIN catalog c ON c.id = p.catalog_id "
+            "WHERE p.catalog_id = ? OR p.catalog_id IN (SELECT id FROM catalog WHERE group_id = ?) "
+            "ORDER BY p.bought_at, p.id",
+            (root["id"], root["id"]),
         )
+        products = {r["catalog_id"] for r in rows}
+        summary = item_stats(rows)
+        own = [r for r in rows if r["catalog_id"] == catalog_id]
+        if root["id"] != catalog_id:
+            # A kind: timing for the whole kind, price and counts for this product.
+            mine = item_stats(own) if own else None
+            summary["price"] = mine["price"] if mine else None
+            product = {"trips": mine["trips"] if mine else 0, "last_bought": mine["last_bought"] if mine else None}
+        else:
+            product = None
+            if len(products) > 1:
+                summary["price"] = None
+        by_kind = []
+        if len(products) > 1:
+            for kind_id in products:
+                kr = [r for r in rows if r["catalog_id"] == kind_id]
+                ks = item_stats(kr)
+                by_kind.append({"id": kind_id, "name": kr[0]["kind_name"], "trips": ks["trips"],
+                                "last_bought": ks["last_bought"], "price": ks["price"]})
+            by_kind.sort(key=lambda k: (-k["trips"], k["name"]))
         return {
             "item": {"id": item["id"], "name": item["name"]},
-            "summary": item_stats(rows),
+            # Whose timing this is: the generic item, when it has kinds or this is one of them.
+            "kind": {"id": root["id"], "name": root["name"], "kinds": len(products)} if len(products) > 1 or root["id"] != catalog_id else None,
+            "summary": summary,
+            "product": product,
+            "by_kind": by_kind,
             "weekly": weekly(rows, today()),
-            "purchases": rows,
+            "purchases": own if root["id"] != catalog_id else rows,
         }
 
     @app.get("/userscript/" + USERSCRIPT_NAME, include_in_schema=False)
