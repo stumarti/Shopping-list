@@ -152,6 +152,14 @@ MIGRATIONS = [
         PRIMARY KEY (or_id, shop_date)
     )
     """,
+    # 9: macros per pack (grams of protein, carbohydrate and fat) beside the calories, and the food pyramid shelf
+    #    you set for an item ("" until you do: it's guessed from the name and aisle)
+    """
+    ALTER TABLE catalog ADD COLUMN protein REAL;
+    ALTER TABLE catalog ADD COLUMN carbs REAL;
+    ALTER TABLE catalog ADD COLUMN fat REAL;
+    ALTER TABLE catalog ADD COLUMN food_group TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 FALLBACK_AISLE = "Other"

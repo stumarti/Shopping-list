@@ -753,6 +753,21 @@ def test_generic_items_pick_one_sets_and_calories(tmp_path):
     # Clearing calories
     assert c.patch(f"/api/catalog/{chicken}", json={"kcal": None}).json()["kcal"] is None
 
+    # Macros per pack, and the food pyramid shelf: guessed, then set
+    milk = c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"protein": 68.04, "carbs": 96, "fat": 72}).json()
+    assert (milk["protein"], milk["carbs"], milk["fat"]) == (68.0, 96, 72)
+    assert milk["food_group"] == "" and milk["food_group_guess"] == "dairy"
+    assert c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"food_group": "cake"}).status_code == 422
+    c.patch(f"/api/catalog/{ids['Tesco Tenderstem Broccoli 200g']}", json={"protein": 6})
+    plan = {i["name"]: i for i in c.get("/api/next-shop").json()["items"]}
+    assert plan["Tesco Whole Milk 2L"]["protein"] == 68.0 and plan["Tesco Whole Milk 2L"]["food_group"] == "dairy"
+    assert plan["Broccoli"]["protein"] == 6 and plan["Broccoli"]["food_group"] == "veg"  # from its kind
+    assert plan["Protein"]["food_group"] == "protein"
+    c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"food_group": "treats", "fat": None})
+    plan = {i["name"]: i for i in c.get("/api/next-shop").json()["items"]}
+    assert plan["Tesco Whole Milk 2L"]["food_group"] == "treats" and plan["Tesco Whole Milk 2L"]["fat"] is None
+    assert [g["id"] for g in c.get("/api/food-groups").json()] == ["veg", "starch", "dairy", "protein", "fats", "treats"]
+
     # A kind can't join a set (its generic item can), and a set's name can't be an item's
     assert c.patch(f"/api/catalog/{ids['Tesco Broccoli Florets 360g']}", json={"or_set": "Protein"}).status_code == 409
     assert c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"or_set": "Broccoli"}).status_code == 409

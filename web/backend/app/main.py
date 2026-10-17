@@ -12,10 +12,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from . import clubcard
-from .catalog import guess_aisle
+from .catalog import FOOD_GROUP_IDS, FOOD_GROUPS, guess_aisle, guess_food_group
 from .db import Database, category_order
 from .finder import BarcodeFinder
-from .stats import for_next_shop, group_suggestions, item_stats, shop_plan_date, typical_shop, weekly
+from .stats import for_next_shop, group_suggestions, item_stats, shop_plan_date, spending, typical_shop, weekly
 from .lookup import STORES, Fetch, fill_link, http_fetch, is_barcode, link_templates, lookup_barcode, product_url
 
 USERSCRIPT_NAME = "shopping-list.user.js"
@@ -50,6 +50,10 @@ class CatalogChange(BaseModel):
     category: str | None = None
     barcode: str | None = None
     kcal: float | None = Field(default=None, ge=0, le=100_000)  # calories per pack; send null to clear
+    protein: float | None = Field(default=None, ge=0, le=10_000)  # grams per pack, likewise
+    carbs: float | None = Field(default=None, ge=0, le=10_000)
+    fat: float | None = Field(default=None, ge=0, le=10_000)
+    food_group: str | None = None  # a FOOD_GROUPS id, or "" to go back to the guess
     group: str | None = Field(default=None, max_length=80)  # the generic item this is a kind of; "" for none
     or_set: str | None = Field(default=None, max_length=80)  # the pick-one set it's in; "" for none
 
@@ -107,7 +111,8 @@ class SetChoice(BaseModel):
 
 # Which option to show first in a pick-one set: the most regular habit.
 BADGE_RANK = {"weekly": 0, "scheduled": 1, "unsure": 2, "added": 3}
-CATALOG_COLUMNS = "id, name, category, custom, barcode, barcode_source, kind, group_id, or_id, kcal"
+CATALOG_COLUMNS = "id, name, category, custom, barcode, barcode_source, kind, group_id, or_id, kcal, protein, carbs, fat, food_group"
+MACROS = ("protein", "carbs", "fat")
 
 
 class FindBarcodes(BaseModel):
@@ -178,10 +183,17 @@ def create_app(
             i["products"] = saved.get(key(i), {})
         return items
 
+    def food_guess(items: list[dict]) -> list[dict]:
+        """Add the pyramid shelf the item's name and aisle suggest, shown until you pick one."""
+        for i in items:
+            i["food_group_guess"] = guess_food_group(i["name"], i["category"])
+        return items
+
     def catalog_item(item_id: int) -> dict:
         rows = db.rows(f"SELECT {CATALOG_COLUMNS} FROM catalog WHERE id = ?", (item_id,))
         if not rows:
             raise HTTPException(404, "That common item has gone")
+        food_guess(rows)
         rows[0]["custom"] = bool(rows[0]["custom"])
         rows[0]["trips"] = trip_counts().get(item_id, 0)
         return with_products(rows)[0]
@@ -200,21 +212,31 @@ def create_app(
                 trips.setdefault(i, set()).add((p["store"], p["order_ref"]))
         return {i: len(t) for i, t in trips.items()}
 
-    def kcal_map(rows: list[dict] | None = None) -> dict[int, float | None]:
-        """{catalog id: calories per pack}. A generic item without its own figure uses the average of its kinds;
-        a kind without one uses its generic item's."""
-        rows = rows if rows is not None else db.rows("SELECT id, group_id, kcal FROM catalog")
-        out = {r["id"]: r["kcal"] for r in rows}
+    def kcal_map(rows: list[dict] | None = None, field: str = "kcal") -> dict[int, float | None]:
+        """{catalog id: calories per pack} (or another figure per pack: protein, carbs, fat). A generic item
+        without its own figure uses the average of its kinds; a kind without one uses its generic item's."""
+        rows = rows if rows is not None else db.rows(f"SELECT id, group_id, {field} FROM catalog")
+        out = {r["id"]: r[field] for r in rows}
         kinds: dict[int, list[float]] = {}
         for r in rows:
-            if r["group_id"] and r["kcal"] is not None:
-                kinds.setdefault(r["group_id"], []).append(r["kcal"])
+            if r["group_id"] and r[field] is not None:
+                kinds.setdefault(r["group_id"], []).append(r[field])
         for group_id, values in kinds.items():
             if out.get(group_id) is None:
-                out[group_id] = round(sum(values) / len(values))
+                out[group_id] = round(sum(values) / len(values), 0 if field == "kcal" else 1)
         for r in rows:
             if r["group_id"] and out.get(r["id"]) is None:
                 out[r["id"]] = out.get(r["group_id"])
+        return out
+
+    def food_groups(rows: list[dict]) -> dict[int, str]:
+        """{catalog id: pyramid shelf}: the one you set, else a kind's generic item's, else the guess."""
+        by_id = {r["id"]: r for r in rows}
+        out = {}
+        for r in rows:
+            parent = by_id.get(r["group_id"]) if r["group_id"] else None
+            out[r["id"]] = (r["food_group"] or (parent["food_group"] if parent else "")
+                            or guess_food_group(r["name"], r["category"]))
         return out
 
     def set_group(conn, item_id: int, name: str):
@@ -310,6 +332,11 @@ def create_app(
     @app.get("/api/categories")
     def categories():
         return db.aisle_names()
+
+    @app.get("/api/food-groups")
+    def food_group_list():
+        """The food pyramid's shelves, bottom first."""
+        return [{"id": i, "name": n, "advice": a} for i, n, a in FOOD_GROUPS]
 
     @app.get("/api/links")
     def links():
@@ -419,7 +446,7 @@ def create_app(
 
     @app.get("/api/catalog")
     def get_catalog():
-        items = db.rows(f"SELECT {CATALOG_COLUMNS} FROM catalog")
+        items = food_guess(db.rows(f"SELECT {CATALOG_COLUMNS} FROM catalog"))
         trips = trip_counts()
         for i in items:
             i["custom"] = bool(i["custom"])
@@ -459,9 +486,15 @@ def create_app(
     @app.patch("/api/catalog/{item_id}")
     def change_catalog_item(item_id: int, body: CatalogChange):
         catalog_item(item_id)
-        changes = body.model_dump(exclude_none=True, exclude={"kcal", "group", "or_set"})
+        changes = body.model_dump(exclude_none=True, exclude={"kcal", *MACROS, "group", "or_set"})
         if "kcal" in body.model_fields_set:
             changes["kcal"] = None if body.kcal is None else round(body.kcal)
+        for m in MACROS:
+            if m in body.model_fields_set:
+                value = getattr(body, m)
+                changes[m] = None if value is None else round(value, 1)
+        if "food_group" in changes and changes["food_group"] not in FOOD_GROUP_IDS | {""}:
+            raise HTTPException(422, "That isn't a food group")
         if "category" in changes:
             changes["category"] = aisle(changes["category"])
         if "name" in changes:
@@ -794,15 +827,20 @@ def create_app(
     @app.get("/api/next-shop")
     def next_shop():
         plan = shop_plan()
-        cat = {r["id"]: r for r in db.rows("SELECT id, name, category, kind, group_id, or_id, kcal FROM catalog")}
+        cat = {r["id"]: r for r in db.rows(
+            "SELECT id, name, category, kind, group_id, or_id, kcal, protein, carbs, fat, food_group FROM catalog")}
         by_name = {r["name"].lower(): r["id"] for r in cat.values()}
         kcal = kcal_map(list(cat.values()))
+        macros = {m: kcal_map(list(cat.values()), m) for m in MACROS}
+        shelves = food_groups(list(cat.values()))
         trips = trip_counts()
 
-        def extra(catalog_id: int | None) -> dict:
+        def extra(catalog_id: int | None, name: str = "", category: str = "") -> dict:
             k = kcal.get(catalog_id) if catalog_id else None
             return {"trips": trips.get(catalog_id, 0) if catalog_id else 0, "kind": "item", "kcal_low": k, "kcal_high": k,
-                    "options": None, "chosen": None}
+                    "options": None, "chosen": None,
+                    **{m: macros[m].get(catalog_id) if catalog_id else None for m in MACROS},
+                    "food_group": shelves.get(catalog_id, "") if catalog_id else guess_food_group(name, category)}
 
         items = []
         skipped = []
@@ -822,7 +860,7 @@ def create_app(
                     "qty": max(1, round(u["usual_qty"] or 1)), **pick, **extra(u["catalog_id"]),
                 }
                 (skipped if u["catalog_id"] in skips else items).append(entry)
-            items, skipped = pick_one_sets(items, skipped, skips, plan["date"], cat, kcal, trips, usual)
+            items, skipped = pick_one_sets(items, skipped, skips, plan["date"], cat, kcal, trips, usual, macros, shelves)
             # Things you're not sure to need stay out of the shop until you add them (a pick-one set stays in: you pick).
             maybe = [e for e in items + skipped if e["badge"] == "unsure" and e["kind"] != "or"]
             items = [e for e in items if e not in maybe]
@@ -830,11 +868,12 @@ def create_app(
         for a in added:
             items.append({
                 "catalog_id": None, "list_item_id": a["id"], "name": a["name"], "category": a["category"], "qty": a["qty"],
-                "badge": "added", "label": "Added", "detail": "You added this", **extra(by_name.get(a["name"].lower())),
+                "badge": "added", "label": "Added", "detail": "You added this",
+                **extra(by_name.get(a["name"].lower()), a["name"], a["category"]),
             })
         return {"shop": plan, "items": sort_items(items), "maybe": sort_items(maybe), "skipped": sort_items(skipped)}
 
-    def pick_one_sets(items, skipped, skips, shop_date, cat, kcal, trips, usual):
+    def pick_one_sets(items, skipped, skips, shop_date, cat, kcal, trips, usual, macros, shelves):
         """Fold the options of each pick-one set (two or more options) that are due into one line for the set."""
         options_of: dict[int, list[int]] = {}
         for r in cat.values():
@@ -873,6 +912,13 @@ def create_app(
                 "kcal_low": chosen["kcal"] if chosen else (min(known) if known else None),
                 "kcal_high": chosen["kcal"] if chosen else (max(known) if known else None),
             }
+            # Macros and shelf: the one picked, or until then the average of the options (the most bought's shelf).
+            for m in MACROS:
+                values = [macros[m].get(o["catalog_id"]) for o in options]
+                values = [v for v in values if v is not None]
+                entry[m] = (macros[m].get(chosen["catalog_id"]) if chosen
+                            else round(sum(values) / len(values), 1) if values else None)
+            entry["food_group"] = shelves.get(chosen["catalog_id"] if chosen else options[0]["catalog_id"], "")
             (skipped if set_id in skips else kept).append(entry)
         return kept, skipped
 
@@ -1001,9 +1047,23 @@ def create_app(
             "summary": summary,
             "product": product,
             "by_kind": by_kind,
-            "weekly": weekly(rows, today()),
+            "weekly": weekly(rows, today(), shopped={r["w"] for r in db.rows(
+                "SELECT DISTINCT date(bought_on, '-' || ((cast(strftime('%w', bought_on) AS integer) + 6) % 7) || ' days') AS w "
+                "FROM purchases")}),
+            # What you've spent on it: this product, or for a generic item every kind.
+            "spend": round(sum(r["unit_price"] * r["qty"] for r in (own if root["id"] != catalog_id else rows)
+                               if r["unit_price"] is not None), 2),
             "purchases": own if root["id"] != catalog_id else rows,
         }
+
+    @app.get("/api/spending")
+    def spend():
+        """What you've spent, month by month, and how prices of what you buy have moved."""
+        rows = db.rows(
+            "SELECT p.catalog_id, c.name, p.bought_on, p.qty, p.unit_price, p.store || '|' || p.order_ref AS trip "
+            "FROM purchases p LEFT JOIN catalog c ON c.id = p.catalog_id"
+        )
+        return spending(rows, today())
 
     @app.get("/userscript/" + USERSCRIPT_NAME, include_in_schema=False)
     def userscript(request: Request):

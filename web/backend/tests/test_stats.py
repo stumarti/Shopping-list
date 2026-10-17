@@ -80,7 +80,30 @@ def test_weekly_counts_from_first_purchase():
         {"week": "2026-10-12", "qty": 1, "trips": 1},
     ]
     long_ago = [{"store": "t", "order_ref": "x", "bought_on": "2024-01-01", "qty": 1}]
-    assert len(weekly(long_ago, TODAY)) == 52 and weekly([], TODAY)[-1]["week"] == "2026-10-12"
+    assert len(weekly(long_ago, TODAY)) == 146 and weekly([], TODAY)[-1]["week"] == "2026-10-12"  # all of it
+    assert len(weekly(long_ago, TODAY, weeks=52)) == 52
+    # A week with no shopping at all is marked, so it isn't read as "not bought"
+    marked = weekly(rows, TODAY, shopped={"2026-09-28", "2026-10-12"})
+    assert [w.get("shopped") for w in marked] == [True, False, None]  # this week isn't over, so it isn't marked
+
+
+def test_spending():
+    from app.stats import spending
+    row = lambda pid, day, price, trip, qty=1: {"catalog_id": pid, "name": f"P{pid}", "bought_on": day, "qty": qty, "unit_price": price, "trip": trip}
+    rows = [
+        row(1, "2026-01-05", 2.0, "a"), row(2, "2026-01-05", 1.0, "a", qty=2),
+        row(1, "2026-01-07", 2.0, "b"),
+        row(1, "2026-06-01", 2.2, "c"), row(2, "2026-06-01", 1.0, "c", qty=2),
+        row(3, "2026-06-01", None, "c"),  # no price: left out
+    ]
+    s = spending(rows, TODAY)
+    assert s["total"] == 10.2 and s["trips"] == 3 and s["a_shop"] == 3.4
+    assert s["weeks"] == 2 and s["a_week"] == 5.1  # two weeks with shopping, the months between don't count
+    assert s["months"] == [{"month": "2026-01", "spend": 6.0, "trips": 2}, {"month": "2026-06", "spend": 4.2, "trips": 1}]
+    # Milk up 10%, the other flat: overall up, weighted by spend (6.2 on P1, 4.0 on P2)
+    assert s["prices"]["products"] == 2 and s["prices"]["change"] == round(0.1 * 6.2 / 10.2, 3)
+    assert [c["name"] for c in s["prices"]["up"]] == ["P1"] and s["prices"]["down"] == []
+    assert spending([row(1, "2026-01-05", None, "a")], TODAY) is None
 
 
 def test_shop_date_on_usual_day():
@@ -124,3 +147,15 @@ def test_typical_shop_calories_a_week_skip_weeks_with_no_shopping():
     t = typical_shop([line("a", "2026-10-05", 3000), line("b", "2026-10-09", 1000), line("c", "2026-10-21", 2000)], ["Dairy & eggs"])
     assert t["weeks"] == 2 and t["kcal_week"] == 3000
     assert t["kcal"] == 2000  # a shop
+
+
+def test_food_group_guesses():
+    from app.catalog import guess_food_group
+    assert guess_food_group("Tesco Whole Milk 2L", "Dairy & eggs") == "dairy"
+    assert guess_food_group("Cadbury Dairy Milk Chocolate", "Snacks & treats") == "treats"
+    assert guess_food_group("Kerrygold Butter 227g", "Dairy & eggs") == "fats"
+    assert guess_food_group("Whole Earth Peanut Butter", "Cupboard") == "protein"
+    assert guess_food_group("Brennans Family Pan 800g", "Bakery") == "starch"
+    assert guess_food_group("Loose Bananas", "Fresh produce") == "veg"
+    assert guess_food_group("Fairy Original Washing Up Liquid", "Household") == ""
+    assert guess_food_group("Something new", "Fruit & veg") == "veg"  # by aisle when no word says

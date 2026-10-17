@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useState } from "react";
-import { api, itemLinks, type CatalogItem, type CommonChange, type ItemHistory, type Links } from "./api";
+import { api, itemLinks, type CatalogItem, type CommonChange, type FoodGroup, type ItemHistory, type Links } from "./api";
 import { byTrips, OrderToggle, useOrder } from "./Order";
+import PriceChart from "./PriceChart";
+import Spending from "./Spending";
 import WeeklyChart from "./WeeklyChart";
 
 type Props = {
@@ -23,6 +25,10 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState<number | null>(null);
   const [order, setOrder] = useOrder();
+  const [foodGroups, setFoodGroups] = useState<FoodGroup[]>([]);
+  useEffect(() => {
+    api.foodGroups().then(setFoodGroups, () => setFoodGroups([]));
+  }, []);
 
   const sets = new Map(catalog.filter((c) => c.kind === "or").map((c) => [c.id, c.name]));
   const kindsOf = (id: number) => byTrips(catalog.filter((c) => c.group_id === id));
@@ -50,12 +56,22 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
         </span>
       </button>
       {open === item.id && (
-        <ItemDetail item={item} catalog={catalog} categories={categories} links={links} run={run} onGone={() => setOpen(null)} />
+        <ItemDetail
+          item={item}
+          catalog={catalog}
+          categories={categories}
+          foodGroups={foodGroups}
+          links={links}
+          run={run}
+          onGone={() => setOpen(null)}
+        />
       )}
     </li>
   );
 
   return (
+    <>
+    <Spending refresh={catalog.length} />
     <section aria-labelledby="common-heading">
       <div className="section-head">
         <h2 id="common-heading">Common items</h2>
@@ -116,6 +132,7 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
         </p>
       )}
     </section>
+    </>
   );
 }
 
@@ -123,6 +140,7 @@ function ItemDetail({
   item,
   catalog,
   categories,
+  foodGroups,
   links,
   run,
   onGone,
@@ -130,6 +148,7 @@ function ItemDetail({
   item: CatalogItem;
   catalog: CatalogItem[];
   categories: string[];
+  foodGroups: FoodGroup[];
   links: Links | null;
   run: Props["run"];
   onGone: () => void;
@@ -139,7 +158,6 @@ function ItemDetail({
   const [name, setName] = useState(item.name);
   const [barcode, setBarcode] = useState(item.barcode);
   const groupName = (id: number | null) => catalog.find((c) => c.id === id)?.name ?? "";
-  const [kcal, setKcal] = useState(item.kcal === null ? "" : String(item.kcal));
   const [group, setGroup] = useState(groupName(item.group_id));
   const [orSet, setOrSet] = useState(groupName(item.or_id));
   const kinds = catalog.filter((c) => c.group_id === item.id);
@@ -152,26 +170,19 @@ function ItemDetail({
   useEffect(() => {
     setName(item.name);
     setBarcode(item.barcode);
-    setKcal(item.kcal === null ? "" : String(item.kcal));
     setGroup(groupName(item.group_id));
     setOrSet(groupName(item.or_id));
-  }, [item.name, item.barcode, item.kcal, item.group_id, item.or_id]);
+  }, [item.name, item.barcode, item.group_id, item.or_id]);
 
   const save = (change: CommonChange) =>
     run(() => api.editCommon(item.id, change)).then((ok) => {
       if (!ok) {
         setName(item.name);
         setBarcode(item.barcode);
-        setKcal(item.kcal === null ? "" : String(item.kcal));
         setGroup(groupName(item.group_id));
         setOrSet(groupName(item.or_id));
       }
     });
-  const saveKcal = () => {
-    const value = kcal.trim() === "" ? null : Math.round(Number(kcal));
-    if (value !== null && !(value >= 0)) return setKcal(item.kcal === null ? "" : String(item.kcal));
-    if (value !== item.kcal) void save({ kcal: value });
-  };
 
   const s = history?.summary;
   const bought = history?.purchases.length ?? 0;
@@ -206,13 +217,10 @@ function ItemDetail({
                 {history.product.last_bought && `, last ${fmt(history.product.last_bought)}`}.
               </>
             )}
-            {s!.price && (
-              <>
-                {" "}
-                {euro(s!.price.now)} each
-                {s!.price.low !== s!.price.high && ` (between ${euro(s!.price.low)} and ${euro(s!.price.high)})`}.
-              </>
+            {s!.price && !(history.by_kind.length === 0 && history.purchases.filter((p) => p.unit_price !== null).length > 1) && (
+              <> {euro(s!.price.now)} each.</>
             )}
+            {history.spend > 0 && <> You've spent {euro(history.spend)} on {history.kind?.id === item.id ? "them" : "it"}.</>}
           </p>
           {history.by_kind.length > 0 && (
             <ul className="by-kind">
@@ -227,6 +235,12 @@ function ItemDetail({
                 </li>
               ))}
             </ul>
+          )}
+          {history.by_kind.length === 0 && history.purchases.filter((p) => p.unit_price !== null).length > 1 && (
+            <>
+              <h4>Price</h4>
+              <PriceChart purchases={history.purchases} />
+            </>
           )}
           <h4>Weeks you bought it</h4>
           <WeeklyChart weeks={history.weekly} expected={s!.next_expected} />
@@ -279,17 +293,28 @@ function ItemDetail({
             ))}
           </select>
         </label>
-        <label>
-          <span>Calories per pack</span>
-          <input
-            value={kcal}
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="Not set"
-            onChange={(e) => setKcal(e.target.value.replace(/[^\d]/g, ""))}
-            onBlur={saveKcal}
-          />
-        </label>
+        <fieldset className="nutrition">
+          <legend>Per pack</legend>
+          <Amount label="Calories" unit="kcal" value={item.kcal} whole onSave={(v) => save({ kcal: v })} />
+          <Amount label="Protein" unit="g" value={item.protein} onSave={(v) => save({ protein: v })} />
+          <Amount label="Carbs" unit="g" value={item.carbs} onSave={(v) => save({ carbs: v })} />
+          <Amount label="Fat" unit="g" value={item.fat} onSave={(v) => save({ fat: v })} />
+          <label className="food-group">
+            <span>Food group</span>
+            <select value={item.food_group} onChange={(e) => save({ food_group: e.target.value })}>
+              <option value="">
+                {item.food_group_guess
+                  ? `Guess: ${foodGroups.find((g) => g.id === item.food_group_guess)?.name ?? item.food_group_guess}`
+                  : "Not food (guess)"}
+              </option>
+              {foodGroups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </fieldset>
         {kinds.length > 0 ? (
           <div className="kinds">
             <span>Kinds of {item.name}</span>
@@ -392,6 +417,36 @@ function ItemDetail({
         </button>
       </div>
     </div>
+  );
+}
+
+/** A number per pack, saved when you leave the box; empty clears it. */
+function Amount({ label, unit, value, whole, onSave }: { label: string; unit: string; value: number | null; whole?: boolean; onSave: (v: number | null) => void }) {
+  const shown = value === null ? "" : String(value);
+  const [text, setText] = useState(shown);
+  useEffect(() => setText(shown), [shown]);
+  const commit = () => {
+    const t = text.trim().replace(",", ".");
+    const n = t === "" ? null : Number(t);
+    if (n !== null && !(n >= 0)) return setText(shown);
+    const v = n === null ? null : whole ? Math.round(n) : Math.round(n * 10) / 10;
+    if (v !== value) onSave(v);
+  };
+  return (
+    <label className="amount">
+      <span>{label}</span>
+      <span className="with-unit">
+        <input
+          value={text}
+          inputMode={whole ? "numeric" : "decimal"}
+          maxLength={7}
+          placeholder="–"
+          onChange={(e) => setText(e.target.value.replace(whole ? /[^\d]/g : /[^\d.,]/g, ""))}
+          onBlur={commit}
+        />
+        <span className="unit">{unit}</span>
+      </span>
+    </label>
   );
 }
 

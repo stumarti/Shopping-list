@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, type CatalogItem, type NextShop as Plan, type ShopItem, type TypicalShop } from "./api";
+import { api, type CatalogItem, type FoodGroup, type NextShop as Plan, type ShopItem, type TypicalShop } from "./api";
 import { byTrips, OrderToggle, useOrder } from "./Order";
 
 type Props = {
@@ -67,6 +67,10 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
   const [order, setOrder] = useOrder();
   const [adults, setAdults] = useCount(ADULTS_KEY, 2, 1);
   const [children, setChildren] = useCount(CHILDREN_KEY, 0, 0);
+  const [foodGroups, setFoodGroups] = useState<FoodGroup[]>([]);
+  useEffect(() => {
+    api.foodGroups().then(setFoodGroups, () => setFoodGroups([]));
+  }, []);
 
   const load = () => api.nextShop().then(setPlan, () => setPlan(null));
   useEffect(() => {
@@ -307,7 +311,15 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
         {(plan.items.length > 0 || typical?.kcal_week) && (
           <section aria-labelledby="kcal-heading">
             <h2 id="kcal-heading">Calories</h2>
-            <Calories items={plan.items} typical={typical} adults={adults} setAdults={setAdults} children={children} setChildren={setChildren} />
+            <Nutrition
+              items={plan.items}
+              typical={typical}
+              groups={foodGroups}
+              adults={adults}
+              setAdults={setAdults}
+              children={children}
+              setChildren={setChildren}
+            />
           </section>
         )}
         {typical && <Typical t={typical} aisle={aisle} pick={pickAisle} />}
@@ -368,10 +380,17 @@ function ShopRow({ i, showAisle, onChoose, action }: { i: ShopItem; showAisle: b
   );
 }
 
-/** What the shop comes to in calories, and what you usually buy in a week, against what the household needs. */
-function Calories({
+// Reference intakes for an adult on 2,000 kcal a day; scaled to the household's calories.
+const RI = { protein: 50, carbs: 260, fat: 70 };
+const MACRO_NAMES = { protein: "Protein", carbs: "Carbs", fat: "Fat" } as const;
+type Macro = keyof typeof RI;
+
+/** What the shop comes to in calories against a week for the household, with the household, a usual week,
+ * macros and the food pyramid tucked away until you open them. */
+function Nutrition({
   items,
   typical,
+  groups,
   adults,
   setAdults,
   children,
@@ -379,6 +398,7 @@ function Calories({
 }: {
   items: ShopItem[];
   typical: TypicalShop;
+  groups: FoodGroup[];
   adults: number;
   setAdults: (n: number) => void;
   children: number;
@@ -388,67 +408,153 @@ function Calories({
   const low = known.reduce((s, i) => s + i.kcal_low! * i.qty, 0);
   const high = known.reduce((s, i) => s + i.kcal_high! * i.qty, 0);
   const missing = items.length - known.length;
-  const need = (adults * KCAL_ADULT + children * KCAL_CHILD) * 7;
+  const adultWeek = adults * KCAL_ADULT * 7;
+  const childWeek = children * KCAL_CHILD * 7;
+  const need = adultWeek + childWeek;
   const pct = (n: number) => Math.round((n / need) * 100);
-  const width = (n: number) => `${Math.min(100, (n / need) * 100)}%`;
+  const width = (n: number, of = need) => `${Math.min(100, (n / of) * 100)}%`;
   const who = [plural(adults, "adult", "adults"), children > 0 && plural(children, "child", "children")].filter(Boolean).join(" and ");
   const usual = typical?.kcal_week ?? null;
 
+  const withMacros = items.filter((i) => i.protein !== null || i.carbs !== null || i.fat !== null);
+  const grams = (m: Macro) => items.reduce((s, i) => s + (i[m] ?? 0) * i.qty, 0);
+  const macroNeed = (m: Macro) => (RI[m] * need) / 2000;
+
   return (
     <div className="kcal" aria-live="polite">
-      <p className="kcal-need">
-        A week for {who} is about <strong>{num(need)} kcal</strong>.
-      </p>
-
-      <div className="kcal-row">
-        <p className="kcal-label">This shop</p>
-        {known.length === 0 ? (
-          <p className="muted">Add calories per pack to your common items to see what this shop comes to.</p>
-        ) : (
-          <>
-            <p className="kcal-line">
-              <strong>≈ {range(low, high)} kcal</strong>{" "}
-              <span className="muted">
-                {pct(low) === pct(high) ? pct(low) : `${pct(low)}–${pct(high)}`}% of the week{low !== high && ", depending on what you pick"}
-              </span>
-            </p>
-            <div className="meter" aria-hidden="true">
-              <span className="high" style={{ width: width(high) }} />
-              <span style={{ width: width(low) }} />
-            </div>
-            {missing > 0 && <p className="muted kcal-note">{plural(missing, "item has", "items have")} no calories yet.</p>}
-          </>
-        )}
-      </div>
-
-      {usual !== null && typical && (
-        <div className="kcal-row">
-          <p className="kcal-label">A usual week</p>
+      {known.length === 0 ? (
+        <p className="muted">Add calories per pack to your common items to see what this shop comes to.</p>
+      ) : (
+        <>
           <p className="kcal-line">
-            <strong>≈ {num(usual)} kcal</strong> <span className="muted">{pct(usual)}% of the week</span>
+            <strong>≈ {range(low, high)} kcal</strong>{" "}
+            <span className="muted">
+              {pct(low) === pct(high) ? pct(low) : `${pct(low)}–${pct(high)}`}% of a week for {who}
+            </span>
           </p>
           <div className="meter" aria-hidden="true">
-            <span style={{ width: width(usual) }} />
+            <span className="high" style={{ width: width(high) }} />
+            <span style={{ width: width(low) }} />
           </div>
-          <p className="muted kcal-note">
-            What you bought a week over the {plural(typical.weeks, "week", "weeks")} you shopped; weeks with no shopping are left out.
-            {typical.kcal_known < 0.95 && ` Only counts the ${Math.round(typical.kcal_known * 100)}% of things with calories set.`}
-          </p>
-        </div>
+          {(missing > 0 || low !== high) && (
+            <p className="muted kcal-note">
+              {missing > 0 && `${plural(missing, "item has", "items have")} no calories yet. `}
+              {low !== high && "The range depends on what you pick."}
+            </p>
+          )}
+        </>
       )}
 
-      <div className="kcal-foot">
-        <label>
-          Adults <input type="number" min={1} max={12} value={adults} onChange={(e) => setAdults(Number(e.target.value))} />
-        </label>
-        <label>
-          Children <input type="number" min={0} max={12} value={children} onChange={(e) => setChildren(Number(e.target.value))} />
-        </label>
-        <span className="muted">
-          About {num(KCAL_ADULT)} kcal a day for an adult, {num(KCAL_CHILD)} for a child.
-        </span>
-      </div>
+      <details className="more">
+        <summary>Household, usual week and macros</summary>
+        <table className="household">
+          <tbody>
+            <tr>
+              <th scope="row">
+                <label>
+                  Adults <input type="number" min={1} max={12} value={adults} onChange={(e) => setAdults(Number(e.target.value))} />
+                </label>
+              </th>
+              <td className="muted per-day">× {num(KCAL_ADULT)} a day</td>
+              <td>{num(adultWeek)} kcal a week</td>
+            </tr>
+            <tr>
+              <th scope="row">
+                <label>
+                  Children <input type="number" min={0} max={12} value={children} onChange={(e) => setChildren(Number(e.target.value))} />
+                </label>
+              </th>
+              <td className="muted per-day">× {num(KCAL_CHILD)} a day</td>
+              <td>{num(childWeek)} kcal a week</td>
+            </tr>
+            <tr className="total">
+              <th scope="row">Together</th>
+              <td className="per-day" />
+              <td>
+                <strong>{num(need)} kcal a week</strong>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {usual !== null && typical && (
+          <div className="kcal-row">
+            <p className="kcal-label">
+              A usual week <span className="muted">≈ {num(usual)} kcal, {pct(usual)}%</span>
+            </p>
+            <div className="meter" aria-hidden="true">
+              <span style={{ width: width(usual) }} />
+            </div>
+            <p className="muted kcal-note">
+              Over the {plural(typical.weeks, "week", "weeks")} you shopped; weeks with no shopping are left out.
+              {typical.kcal_known < 0.95 && ` Counts the ${Math.round(typical.kcal_known * 100)}% of things with calories set.`}
+            </p>
+          </div>
+        )}
+
+        <div className="kcal-row">
+          <p className="kcal-label">Macros in this shop</p>
+          {withMacros.length === 0 ? (
+            <p className="muted kcal-note">Add protein, carbs and fat per pack on the Common items page to see these.</p>
+          ) : (
+            <>
+              <ul className="macros">
+                {(Object.keys(RI) as Macro[]).map((m) => (
+                  <li key={m}>
+                    <span>{MACRO_NAMES[m]}</span>
+                    <span className="meter" aria-hidden="true">
+                      <span style={{ width: width(grams(m), macroNeed(m)) }} />
+                    </span>
+                    <span className="macro-value">
+                      {num(grams(m))} g <span className="muted">of {num(macroNeed(m))}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="muted kcal-note">
+                Against a week's reference intake for {who}. From the {withMacros.length} of {plural(items.length, "item", "items")} with
+                macros set.
+              </p>
+            </>
+          )}
+        </div>
+      </details>
+
+      {groups.length > 0 && items.length > 0 && <Pyramid items={items} groups={groups} />}
     </div>
+  );
+}
+
+/** The food pyramid with this shop on it: how many things on each shelf, top shelf (treats) smallest. */
+function Pyramid({ items, groups }: { items: ShopItem[]; groups: FoodGroup[] }) {
+  const count = (id: string) => items.filter((i) => i.food_group === id).length;
+  const notFood = items.filter((i) => !i.food_group).length;
+  const most = Math.max(1, ...groups.map((g) => count(g.id)));
+  const shelves = [...groups].reverse(); // top first
+  return (
+    <details className="more">
+      <summary>Food pyramid</summary>
+      <ol className="pyramid" aria-label="Food pyramid, top shelf first">
+        {shelves.map((g, i) => {
+          const n = count(g.id);
+          return (
+            <li key={g.id} style={{ width: `${55 + (45 * i) / (shelves.length - 1)}%` }} title={`${g.name}: ${g.advice}`}>
+              <span className="shelf-fill" style={{ width: `${(n / most) * 100}%` }} aria-hidden="true" />
+              <span className="shelf-text">
+                <span className="shelf-name">{g.name}</span>
+                <span className="muted">
+                  {n} · {g.advice}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="muted kcal-note">
+        Things on this shop on each shelf of the food pyramid.{notFood > 0 && ` ${plural(notFood, "thing isn't", "things aren't")} food.`} Set an
+        item's food group on the Common items page if it's guessed wrong.
+      </p>
+    </details>
   );
 }
 
@@ -456,40 +562,39 @@ function Calories({
 function Typical({ t, aisle, pick }: { t: NonNullable<TypicalShop>; aisle: string | null; pick: (aisle: string) => void }) {
   const most = Math.max(...t.aisles.map((a) => a.products), 1);
   return (
-    <section aria-labelledby="typical-heading">
+    <section aria-labelledby="typical-heading" className="typical-card">
       <div className="section-head">
         <h2 id="typical-heading">Your typical shop</h2>
-        <span className="muted">
-          {t.trips} {t.trips === 1 ? "trip" : "trips"}, {shortDate(t.from)} to {shortDate(t.to)}
+        <span className="muted" title={`${shortDate(t.from)} to ${shortDate(t.to)}`}>
+          {plural(t.trips, "trip", "trips")}
         </span>
       </div>
-      <p className="muted">
-        About {t.products} products{t.spend !== null && ` and €${t.spend.toFixed(2)}`} a shop.
-        {t.kcal !== null &&
-          (t.kcal_known >= 0.95
-            ? ` About ${num(t.kcal)} kcal.`
-            : ` About ${num(t.kcal)} kcal from the ${Math.round(t.kcal_known * 100)}% of things with calories set.`)}
+      <p className="muted typical-sum">
+        {t.products} products{t.spend !== null && ` · €${t.spend.toFixed(2)}`}
+        {t.kcal !== null && ` · ${num(t.kcal)} kcal`} a shop
       </p>
       <ul className="typical">
         {t.aisles.map((a) => (
           <li key={a.aisle}>
-            <button className={`typical-row${aisle === a.aisle ? " on" : ""}`} aria-pressed={aisle === a.aisle} onClick={() => pick(a.aisle)}>
-              <span className="typical-name">
-                <span>{a.aisle}</span>
-                <span className="muted">{a.top.join(", ")}</span>
-              </span>
+            <button
+              className={`typical-row${aisle === a.aisle ? " on" : ""}`}
+              aria-pressed={aisle === a.aisle}
+              onClick={() => pick(a.aisle)}
+              title={a.top.length ? `Mostly ${a.top.join(", ")}` : undefined}
+            >
+              <span className="typical-name">{a.aisle}</span>
               <span className="bar" aria-hidden="true">
                 <span style={{ width: `${(a.products / most) * 100}%` }} />
               </span>
               <span className="typical-value">
-                <span>{a.products}</span>
-                <span className="muted">{a.spend !== null ? `€${a.spend.toFixed(2)}` : ""}</span>
+                {a.products}
+                {a.spend !== null && <span className="muted"> · €{a.spend.toFixed(2)}</span>}
               </span>
             </button>
           </li>
         ))}
       </ul>
-      <p className="muted hint">Products per shop in each aisle, and what they cost, averaged over your trips in the last year. Tap an aisle to see just that aisle.</p>
+      <p className="muted hint">Products and spend per shop in each aisle over the last year. Tap an aisle to see just that aisle.</p>
     </section>
   );
 }
