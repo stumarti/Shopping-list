@@ -702,3 +702,313 @@ a {
 .suggest-list .link {
   white-space: nowrap;
 }
+
+/* Header and Settings */
+.title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.settings-link {
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.settings-link.on,
+.settings-link:hover {
+  color: var(--accent);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 8px;
+}
+
+progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.error-text {
+  color: var(--danger);
+}
+
+.found-list,
+.aisle-list,
+.common-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.found-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.aisle-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+}
+
+.aisle-list li:first-child,
+.found-list li:first-child {
+  border-top: none;
+}
+
+.aisle-name,
+.add-aisle input,
+.edit-fields input,
+.edit-fields select,
+.confirm select {
+  font: inherit;
+  color: inherit;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  min-width: 0;
+}
+
+.aisle-name {
+  flex: 1;
+  background: transparent;
+  border-color: transparent;
+}
+
+.aisle-name:hover,
+.aisle-name:focus {
+  border-color: var(--line);
+  background: var(--ground);
+}
+
+.aisle-actions {
+  display: flex;
+}
+
+.aisle-actions button {
+  background: none;
+  border: none;
+  width: 32px;
+  height: 32px;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.count {
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.confirm {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--danger-soft);
+}
+
+.confirm p {
+  margin: 0;
+}
+
+.add-aisle input {
+  flex: 1;
+}
+
+/* Common items: list by aisle, with a detail panel */
+.common-list li {
+  border-top: 1px solid var(--line);
+}
+
+.common-list li:first-child {
+  border-top: none;
+}
+
+.common-name {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: none;
+  padding: 9px 0;
+  text-align: left;
+}
+
+.common-list li.open .common-name {
+  font-weight: 600;
+}
+
+.chev {
+  color: var(--muted);
+}
+
+.detail {
+  padding: 0 0 14px;
+}
+
+.detail h4 {
+  margin: 12px 0 2px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.detail .next {
+  margin: 0;
+}
+
+.detail .stats {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+}
+
+.edit-fields {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.edit-fields label {
+  display: grid;
+  gap: 2px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.edit-fields input,
+.edit-fields select {
+  color: var(--ink);
+}
+
+.detail-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 10px;
+}
+
+.detail-foot .links {
+  margin: 0;
+}
+
+.link.danger {
+  color: var(--danger);
+}
+
+.purchases {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin-top: 6px;
+}
+
+.purchases th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 2px 6px 2px 0;
+}
+
+.purchases td {
+  padding: 3px 6px 3px 0;
+  border-top: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Weekly grid: a square per week, a column per month */
+.weekly {
+  --bar: #1a7f4b;
+}
+
+@media (prefers-color-scheme: dark) {
+  .weekly {
+    --bar: #3aab72;
+  }
+}
+
+.weekly-scroll {
+  overflow-x: auto;
+}
+
+.weekly svg {
+  display: block;
+}
+
+.weekly .cell {
+  fill: var(--ground);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.weekly .cell.bought {
+  fill: var(--bar);
+  stroke: var(--bar);
+}
+
+.weekly .cell.future {
+  fill: none;
+  stroke-dasharray: 2 2;
+}
+
+.weekly .cell.expected {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+}
+
+.weekly .cell.on {
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+.weekly .axis {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.key-item {
+  white-space: nowrap;
+  margin-right: 12px;
+}
+
+.weekly-key {
+  margin: 6px 0 2px;
+  font-size: 0.8rem;
+  min-height: 1.3em;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin: 0 3px 0 0;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  background: var(--ground);
+  vertical-align: -1px;
+}
+
+.swatch.bought {
+  background: var(--bar);
+  border-color: var(--bar);
+}
+
+.swatch.expected {
+  border: 1.5px dashed var(--ink);
+}

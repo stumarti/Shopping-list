@@ -3,7 +3,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-from .catalog import CATEGORIES, COMMON_ITEMS
+from .catalog import CATEGORIES
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS catalog (
@@ -108,7 +108,27 @@ MIGRATIONS = [
         PRIMARY KEY (trip_ref, line_no)
     )
     """,
+    # 5: aisles you can rename, reorder, add and remove (seeded from CATEGORIES; "key" remembers which starter
+    #    aisle a row began as, so aisle guesses still land in the right place after a rename), and barcodes
+    #    found by searching the public databases
+    """
+    CREATE TABLE aisles (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        key TEXT NOT NULL DEFAULT '',
+        position INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX aisles_name ON aisles (lower(name));
+    ALTER TABLE catalog ADD COLUMN barcode_source TEXT NOT NULL DEFAULT '';
+    ALTER TABLE catalog ADD COLUMN barcode_checked_at TEXT NOT NULL DEFAULT ''
+    """,
+    # 6: no starter items any more; common items come from what you add, import or upload
+    """
+    DELETE FROM catalog WHERE custom = 0
+    """,
 ]
+
+FALLBACK_AISLE = "Other"
 
 
 class Database:
@@ -125,7 +145,7 @@ class Database:
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
         self._migrate()
-        self._seed()
+        self._seed_aisles()
 
     def _migrate(self):
         """Add to MIGRATIONS to change the database; never edit one that has shipped."""
@@ -138,15 +158,33 @@ class Database:
                         conn.execute(statement)
                 conn.execute(f"PRAGMA user_version = {number}")
 
-    def _seed(self):
-        if self.conn.execute("SELECT count(*) FROM catalog").fetchone()[0]:
+    def _seed_aisles(self):
+        if self.conn.execute("SELECT count(*) FROM aisles").fetchone()[0]:
             return
-        with self.tx():
-            for category, names in COMMON_ITEMS.items():
-                for name in names:
-                    self.conn.execute(
-                        "INSERT INTO catalog (name, category) VALUES (?, ?)", (name, category)
-                    )
+        with self.tx() as conn:
+            for n, name in enumerate(CATEGORIES):
+                conn.execute("INSERT INTO aisles (name, key, position) VALUES (?, ?, ?)", (name, name, n))
+
+    def aisle_names(self) -> list[str]:
+        return [r["name"] for r in self.rows("SELECT name FROM aisles ORDER BY position, id")]
+
+    def fallback_aisle(self) -> str:
+        """Where things go when their aisle is unknown or removed: the aisle that began as "Other"."""
+        rows = self.rows("SELECT name FROM aisles WHERE key = ?", (FALLBACK_AISLE,))
+        return rows[0]["name"] if rows else FALLBACK_AISLE
+
+    def aisle(self, name: str | None) -> str:
+        """The aisle called this (any case), or the fallback."""
+        if name:
+            rows = self.rows("SELECT name FROM aisles WHERE lower(name) = lower(?)", (name,))
+            if rows:
+                return rows[0]["name"]
+        return self.fallback_aisle()
+
+    def aisle_for_key(self, key: str) -> str:
+        """A starter aisle's current name (after any rename), or the fallback if it's been removed."""
+        rows = self.rows("SELECT name FROM aisles WHERE key = ?", (key,))
+        return rows[0]["name"] if rows else self.aisle(key)
 
     @contextmanager
     def tx(self):
@@ -164,5 +202,5 @@ class Database:
             return [dict(r) for r in self.conn.execute(sql, args).fetchall()]
 
 
-def category_order(category: str) -> int:
-    return CATEGORIES.index(category) if category in CATEGORIES else len(CATEGORIES)
+def category_order(category: str, order: list[str]) -> int:
+    return order.index(category) if category in order else len(order)

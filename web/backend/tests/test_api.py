@@ -8,17 +8,36 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 
+# A few common items for the tests to work with (the app itself starts with none).
+SEED = {
+    "Toiletries": "Toothpaste",
+    "Fruit & veg": "Bananas\nApples",
+    "Dairy & eggs": "Milk\nButter",
+    "Bakery": "Sliced pan",
+    "Household": "Toilet roll",
+}
+
+
 @pytest.fixture
-def client(tmp_path):
+def bare(tmp_path):
     return TestClient(create_app(db_path=str(tmp_path / "test.db"), static_dir=str(tmp_path / "none")))
 
 
-def test_catalog_is_seeded_in_aisle_order(client):
+@pytest.fixture
+def client(bare):
+    for aisle, names in SEED.items():
+        bare.post("/api/catalog/bulk", json={"text": names, "category": aisle})
+    return bare
+
+
+def test_starts_with_no_common_items(bare):
+    assert bare.get("/api/catalog").json() == []
+    assert bare.get("/api/categories").json()[0] == "Fruit & veg"
+
+
+def test_catalog_is_in_aisle_order(client):
     items = client.get("/api/catalog").json()
-    names = [i["name"] for i in items]
-    assert "Milk" in names and "Toilet roll" in names
-    assert items[0]["category"] == "Fruit & veg"
-    assert items[-1]["category"] == "Toiletries"
+    assert [i["name"] for i in items] == ["Apples", "Bananas", "Sliced pan", "Butter", "Milk", "Toilet roll", "Toothpaste"]
 
 
 def test_add_twice_bumps_quantity(client):
@@ -196,13 +215,16 @@ def test_database_from_before_barcodes_is_upgraded(tmp_path):
             qty INTEGER NOT NULL DEFAULT 1, note TEXT NOT NULL DEFAULT '', done INTEGER NOT NULL DEFAULT 0,
             added_at TEXT NOT NULL DEFAULT (datetime('now')));
         INSERT INTO catalog (name, category) VALUES ('Milk', 'Dairy & eggs');
+        INSERT INTO catalog (name, category, custom) VALUES ('Kombucha', 'Fridge', 1);
         INSERT INTO list_items (name, category) VALUES ('Milk', 'Dairy & eggs');
     """)
     old.commit()
     old.close()
     c = TestClient(create_app(db_path=str(path), static_dir=str(tmp_path / "none")))
     assert c.get("/api/list").json()[0]["barcode"] == ""
-    assert [i["name"] for i in c.get("/api/catalog").json()] == ["Milk"]
+    # The old starter items go; your own stay, and so does the list
+    assert [i["name"] for i in c.get("/api/catalog").json()] == ["Kombucha"]
+    assert [i["name"] for i in c.get("/api/list").json()] == ["Milk"]
 
 
 # Saved store products and the basket
@@ -288,7 +310,7 @@ def test_import_order_builds_common_items_with_products(client):
         "items": [
             {"name": "Avonmore Fresh Milk 2 Litre", "qty": 2, "url": TESCO + "111"},
             {"name": "Birds Eye Frozen Garden Peas 800g", "qty": 1, "url": TESCO + "222?from=order"},
-            {"name": "Milk", "qty": 1, "url": TESCO + "333"},  # matches the starter "Milk" by name
+            {"name": "Milk", "qty": 1, "url": TESCO + "333"},  # matches the existing "Milk" by name
             {"name": "Not a product", "qty": 1, "url": "https://www.tesco.ie/shop/en-IE/search?query=x"},
         ],
     }
@@ -476,3 +498,131 @@ def test_history_suggestions(tmp_path):
     assert s["will"][0]["reason"] == "About every week, last 7 days ago" and s["will"][0]["qty"] == 1
     assert [i["name"] for i in s["extras"]] == ["Pampers Baby Dry Size 4 Nappies Jumbo+ 84 Pack"]
     assert s["might"] == []
+
+
+# Aisles
+
+
+def test_aisles_rename_reorder_add_remove(client):
+    aisles = client.get("/api/aisles").json()
+    assert aisles[0]["name"] == "Fruit & veg" and aisles[-1] == {**aisles[-1], "name": "Other", "fallback": True}
+    veg = aisles[0]
+    assert veg["items"] == 2
+    client.post("/api/list", json={"name": "Bananas"})
+
+    # Rename: items and list lines move with it
+    assert client.patch(f"/api/aisles/{veg['id']}", json={"name": "fresh produce"}).json()["name"] == "Fresh produce"
+    assert next(i for i in client.get("/api/catalog").json() if i["name"] == "Bananas")["category"] == "Fresh produce"
+    assert client.get("/api/list").json()[0]["category"] == "Fresh produce"
+    assert client.patch(f"/api/aisles/{veg['id']}", json={"name": "bakery"}).status_code == 409
+    # Guesses for imported products still land there after the rename
+    r = client.post("/api/history/tesco/import", json={"order_ref": "x", "date": "2026-10-01",
+                                                       "items": [{"name": "Tesco Organic Bananas 5 Pack", "url": TESCO + "9"}]})
+    assert r.status_code == 200
+    assert next(i for i in client.get("/api/catalog").json() if i["name"] == "Tesco Organic Bananas 5 Pack")["category"] == "Fresh produce"
+
+    # Add: goes just before Other
+    baby = client.post("/api/aisles", json={"name": "Baby"}).json()
+    names = [a["name"] for a in client.get("/api/aisles").json()]
+    assert names[-2:] == ["Baby", "Other"]
+    assert client.post("/api/aisles", json={"name": "baby"}).status_code == 409
+
+    # Reorder: Baby first; list and catalog follow the new order
+    ids = [a["id"] for a in client.get("/api/aisles").json()]
+    ids.remove(baby["id"])
+    assert client.put("/api/aisles/order", json={"ids": [baby["id"], *ids]}).json()[0]["name"] == "Baby"
+    assert client.put("/api/aisles/order", json={"ids": ids}).status_code == 422
+    client.post("/api/catalog", json={"name": "Nappies", "category": "Baby"})
+    assert client.get("/api/catalog").json()[0]["name"] == "Nappies"
+    assert client.get("/api/categories").json()[0] == "Baby"
+
+    # Remove: items move to the chosen aisle (or Other); Other itself can't go
+    other = next(a for a in client.get("/api/aisles").json() if a["fallback"])
+    toiletries = next(a for a in client.get("/api/aisles").json() if a["name"] == "Toiletries")
+    client.delete(f"/api/aisles/{baby['id']}?move_to={toiletries['id']}")
+    assert next(i for i in client.get("/api/catalog").json() if i["name"] == "Nappies")["category"] == "Toiletries"
+    client.delete(f"/api/aisles/{toiletries['id']}")
+    assert next(i for i in client.get("/api/catalog").json() if i["name"] == "Nappies")["category"] == "Other"
+    assert client.delete(f"/api/aisles/{other['id']}").status_code == 409
+    # Unknown aisles in requests go to Other, even after Other is renamed
+    client.patch(f"/api/aisles/{other['id']}", json={"name": "Everything else"})
+    assert client.post("/api/list", json={"name": "Batteries", "category": "Gadgets"}).json()["category"] == "Everything else"
+
+
+# Finding barcodes by name
+
+
+def off_search(results: dict[str, list[dict]]):
+    """A pretend Open Food Facts search: {words in the query: products}."""
+    calls = []
+
+    def fetch(url):
+        import urllib.parse as up
+        calls.append(url)
+        if "/cgi/search.pl" not in url or "openfoodfacts" not in url:
+            return {"products": []}
+        q = up.parse_qs(up.urlsplit(url).query)["search_terms"][0].lower()
+        return {"products": results.get(q, [])}
+
+    fetch.calls = calls
+    return fetch
+
+
+def test_find_barcodes(tmp_path):
+    fetch = off_search({
+        "avonmore fresh milk 2 litre": [
+            {"code": "5391500000001", "product_name": "Low fat milk", "brands": "Avonmore", "quantity": "1 L"},
+            {"code": "5391500000002", "product_name": "Fresh Milk", "brands": "Avonmore", "quantity": "2L",
+             "countries_tags": ["en:ireland"]},
+        ],
+        "brennans family pan 800g": [{"code": "5099999999999", "product_name": "Wholemeal bread", "brands": "Pat the Baker"}],
+    })
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none"), fetch=fetch, search_gap=0))
+    for n in ["Avonmore Fresh Milk 2 Litre", "Brennans Family Pan 800g"]:
+        c.post("/api/catalog", json={"name": n, "category": "Dairy & eggs"})
+    start = c.post("/api/barcodes/find", json={}).json()
+    assert start["total"] == 2  # starter one-word items like "Milk" are skipped
+    import time
+    for _ in range(100):
+        if not c.get("/api/barcodes/find").json()["running"]:
+            break
+        time.sleep(0.02)
+    s = c.get("/api/barcodes/find").json()
+    assert s["done"] == 2 and s["error"] is None
+    assert s["found"] == [{"catalog_id": s["found"][0]["catalog_id"], "name": "Avonmore Fresh Milk 2 Litre",
+                           "barcode": "5391500000002", "product": "Avonmore Fresh Milk 2L", "source": "openfoodfacts"}]
+    items = {i["name"]: i for i in c.get("/api/catalog").json()}
+    assert items["Avonmore Fresh Milk 2 Litre"]["barcode"] == "5391500000002"
+    assert items["Avonmore Fresh Milk 2 Litre"]["barcode_source"] == "openfoodfacts"
+    assert items["Brennans Family Pan 800g"]["barcode"] == ""  # wrong bread isn't assigned
+
+    # Nothing left to try; undoing one marks it as yours, so it isn't searched again
+    assert s["waiting"] == 0
+    c.patch(f"/api/catalog/{items['Avonmore Fresh Milk 2 Litre']['id']}", json={"barcode": ""})
+    assert c.post("/api/barcodes/find", json={}).json()["total"] == 0
+    # "Try again" includes the ones that found nothing (and the undone one)
+    assert c.post("/api/barcodes/find", json={"retry": True}).json()["total"] == 2
+
+
+def test_find_barcodes_when_offline(tmp_path):
+    def down(url):
+        raise OSError("no network")
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none"), fetch=down, search_gap=0))
+    c.post("/api/catalog", json={"name": "Barrys Gold Blend Tea"})
+    c.post("/api/barcodes/find", json={})
+    import time
+    for _ in range(100):
+        if not c.get("/api/barcodes/find").json()["running"]:
+            break
+        time.sleep(0.02)
+    s = c.get("/api/barcodes/find").json()
+    assert "Couldn't reach Open Food Facts" in s["error"]
+    assert s["waiting"] == 1  # not marked as tried, so it carries on next time
+
+
+def test_clubcard_prices_default_to_per_item_when_totals_dont_add_up():
+    from app.clubcard import prices_are_line_totals
+    t = trip("2026-01-01 10:00", [("Milk", 2, 2.20), ("Bread", 1, 2.50)], gross=11.00)  # neither 6.90 nor 4.70
+    assert prices_are_line_totals(t) is False
+    assert prices_are_line_totals(trip("2026-01-01 10:00", [("Milk", 2, 4.40), ("Bread", 1, 2.50)], gross=6.90)) is True
+    assert prices_are_line_totals(trip("2026-01-01 10:00", [("Milk", 2, 2.20), ("Bread", 1, 2.50)], gross=6.90)) is False
