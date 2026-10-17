@@ -318,7 +318,8 @@ def test_history_and_usual_items(client):
             "items": [{"name": n, "qty": q, "url": TESCO + u} for n, q, u in items]})
     h = client.get("/api/history").json()
     assert [o["order_ref"] for o in h["orders"]] == ["c", "b", "a"]
-    assert h["orders"][2] == {"store": "tesco", "order_ref": "a", "bought_on": "2026-08-01", "products": 2, "units": 3}
+    assert h["orders"][2] == {"store": "tesco", "order_ref": "a", "bought_on": "2026-08-01", "products": 2, "units": 3,
+                              "source": "order"}
     top = h["usual"][0]
     assert (top["name"], top["orders"], top["last_bought"], top["usual_qty"]) == ("Avonmore Milk", 3, "2026-08-15", 1.7)
     # A product saved before (by link) is recognised even under a different name in a later order
@@ -339,3 +340,127 @@ def test_import_rejects_unknown_store_and_bad_dates_default_to_today(client):
 def test_adding_a_known_item_without_an_aisle_uses_its_aisle(client):
     assert client.post("/api/list", json={"name": "bananas"}).json()["category"] == "Fruit & veg"
     assert client.post("/api/list", json={"name": "Gadget"}).json()["category"] == "Other"
+
+
+# Tesco's Clubcard data export, how often things are bought, and what they cost
+
+
+def trip(ts, items, gross=None, kind="IN_STORE"):
+    t = {"timestamp": ts, "type": kind, "says": "No", "numberOfItems": len(items),
+         "payment": [{"type": "card", "category": "MastercardDebit", "amount": 1.0}],
+         "items": [{"name": n, "quantity": q, "weight": 0.0, "price": p, "volume": float(q)} for n, q, p in items]}
+    if gross is not None:
+        t["basketValueGross"] = gross
+    return t
+
+
+def upload(client, data, raw=None):
+    import json as _json
+    return client.post("/api/history/tesco/clubcard", content=raw if raw is not None else _json.dumps(data),
+                       headers={"content-type": "application/octet-stream"})
+
+
+EXPORT = {"requestId": "x", "purchases": [
+    trip("2026-09-28 10:02:11.120", [("Tesco Whole Milk 2L", 1, 2.19), ("Brennans Family Pan 800g", 1, 2.50),
+                                     ("Bag For Life", 1, 0.70)], gross=5.39),
+    trip("2026-10-05 11:15:00.000", [("Tesco Whole Milk 2L", 2, 2.29), ("Pampers Baby Dry Size 4 Nappies Jumbo+ 84 Pack", 2, 10.0)],
+         gross=24.58),
+    trip("2026-10-12 15:20:43.586", [("Tesco Whole Milk 2L", 1, 2.39), ("Pampers Baby Dry Size 4 Nappies Jumbo+ 84 Pack", 2, 20.0),
+                                     ("F&F Baby Touch Fastening Pre Walker Trainers in White", 1, 12.5)], gross=34.89),
+]}
+
+
+def test_clubcard_import(client):
+    r = upload(client, EXPORT).json()
+    assert r.pop("saved_as").startswith("tesco-clubcard-")
+    assert r == {"trips": 3, "new_trips": 3, "already_imported": 0, "lines": 6, "new_common_items": 2,
+                 "not_groceries": 2, "from": "2026-09-28", "to": "2026-10-12"}
+    names = {i["name"]: i for i in client.get("/api/catalog").json()}
+    # Bought on two or more trips → a common item, with its aisle guessed. One-offs and clothing aren't.
+    assert names["Tesco Whole Milk 2L"]["category"] == "Dairy & eggs"
+    assert names["Pampers Baby Dry Size 4 Nappies Jumbo+ 84 Pack"]["category"] == "Toiletries"
+    assert "Brennans Family Pan 800g" not in names
+    assert not any(n.startswith("F&F") or n == "Bag For Life" for n in names)
+    # Uploading the same file again adds nothing
+    again = upload(client, EXPORT).json()
+    assert again["new_trips"] == 0 and again["already_imported"] == 3 and again["lines"] == 0
+
+
+def test_clubcard_frequency_prices_and_timeline(client):
+    upload(client, EXPORT)
+    usual = {u["name"]: u for u in client.get("/api/history").json()["usual"]}
+    milk = usual["Tesco Whole Milk 2L"]
+    assert (milk["orders"], milk["first_bought"], milk["last_bought"], milk["every_days"]) == (3, "2026-09-28", "2026-10-12", 7)
+    assert milk["usual_qty"] == 1.3
+    assert milk["price"] == {"now": 2.39, "now_on": "2026-10-12", "first": 2.19, "first_on": "2026-09-28",
+                             "low": 2.19, "high": 2.39}
+    # Trip 2's prices add up per item (2 × 2.29 + 2 × 10 = 24.58); trip 3's add up per line (2.39 + 20 + 12.5),
+    # so the nappies cost 10.00 each both times.
+    nappies = usual["Pampers Baby Dry Size 4 Nappies Jumbo+ 84 Pack"]
+    assert nappies["price"]["first"] == 10.0 and nappies["price"]["now"] == 10.0
+    assert nappies["every_days"] is None  # needs three trips
+
+    t = client.get(f"/api/history/items/{milk['catalog_id']}").json()
+    assert [(p["bought_at"], p["qty"], p["unit_price"], p["source"]) for p in t["purchases"]] == [
+        ("2026-09-28T10:02:11", 1, 2.19, "clubcard in store"),
+        ("2026-10-05T11:15:00", 2, 2.29, "clubcard in store"),
+        ("2026-10-12T15:20:43", 1, 2.39, "clubcard in store"),
+    ]
+    assert t["summary"]["every_days"] == 7
+
+
+def test_clubcard_zip_odd_shapes_and_bad_files(client):
+    import io, json as _json, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("Tesco/readme.txt", "hello")
+        # purchases as a bare list of trips, with a weighed item (no count) and no basket total
+        z.writestr("Tesco/purchases.json", _json.dumps([
+            trip("2026-01-03 09:00:00", [("Loose Bananas", 0, 0.65), ("Tesco Whole Milk 2L", 1, 1.99)]),
+            trip("2026-01-10 09:00:00", [("Loose Bananas", 0, 0.70)], kind="ONLINE"),
+        ]))
+    r = upload(client, None, raw=buf.getvalue()).json()
+    assert r["trips"] == 2 and r["lines"] == 3 and r["new_common_items"] == 1
+    h = client.get("/api/history").json()
+    assert {o["source"] for o in h["orders"]} == {"clubcard in store", "clubcard online"}
+    bananas = next(u for u in h["usual"] if u["name"] == "Loose Bananas")
+    assert bananas["usual_qty"] == 1 and bananas["price"]["now"] == 0.7
+
+    assert upload(client, None, raw=b"not json").status_code == 422
+    assert "No shopping trips" in upload(client, {"requestId": "x", "purchases": []}).json()["detail"]
+
+
+def test_online_order_prices(client):
+    client.post("/api/history/tesco/import", json={"order_ref": "o1", "date": "2026-10-01", "items": [
+        {"name": "Avonmore Milk 2L", "qty": 2, "url": TESCO + "111", "price": 4.38}]})
+    u = client.get("/api/history").json()["usual"][0]
+    assert u["price"]["now"] == 2.19
+
+
+def test_clubcard_keeps_everything_in_the_file(tmp_path):
+    import json as _json, sqlite3
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none")))
+    export = {**EXPORT, "points": {"balance": 1234}, "purchases": EXPORT["purchases"] + [
+        trip("2026-10-13 09:00:00", [("Tesco Whole Milk 2L", 1, 2.39), ("Tesco Whole Milk 2L", 1, 2.39)])]}
+    raw = _json.dumps(export).encode()
+    r = c.post("/api/history/tesco/clubcard", content=raw).json()
+
+    # The upload itself, byte for byte (points, request id and all)
+    saved = tmp_path / "imports" / r["saved_as"]
+    assert saved.read_bytes() == raw
+
+    db = sqlite3.connect(tmp_path / "t.db")
+    trips = db.execute("SELECT ref, type, basket_gross, raw FROM clubcard_trips ORDER BY ref").fetchall()
+    assert len(trips) == 4
+    assert _json.loads(trips[0][3]) == export["purchases"][0]  # payment details included
+    assert _json.loads(trips[0][3])["payment"][0]["category"] == "MastercardDebit"
+    # Every line, groceries or not, and the same product twice in one trip stays two lines
+    lines = db.execute("SELECT name, quantity, price, volume, grocery FROM clubcard_items ORDER BY trip_ref, line_no").fetchall()
+    assert len(lines) == sum(len(p["items"]) for p in export["purchases"]) == 10
+    assert ("F&F Baby Touch Fastening Pre Walker Trainers in White", 1.0, 12.5, 1.0, 0) in lines
+    assert ("Bag For Life", 1.0, 0.7, 1.0, 0) in lines
+    assert lines[-2:] == [("Tesco Whole Milk 2L", 1.0, 2.39, 1.0, 1)] * 2
+    # Re-uploading keeps another copy of the file but doesn't duplicate trips or lines
+    again = c.post("/api/history/tesco/clubcard", content=raw).json()
+    assert again["saved_as"] != r["saved_as"] and (tmp_path / "imports" / again["saved_as"]).read_bytes() == raw
+    assert db.execute("SELECT count(*) FROM clubcard_items").fetchone()[0] == 10

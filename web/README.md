@@ -104,6 +104,17 @@ This saves every product you've bought, with its store product already linked, s
 
 **Shop online → Past orders** then shows how many orders you've imported and the items you buy most often, each with an **Add** button for your usual quantity.
 
+### Import your Tesco Clubcard data
+
+Tesco will send you everything you've bought with your Clubcard, in store and online: on tesco.ie, **My account → Request your Tesco data**. When the email arrives, download the file and, in **Shop online → Past shopping**, press **Upload Tesco data file** (the `.json`, or the `.zip` as it came).
+
+- **Nothing is thrown away.** The file is kept exactly as uploaded in `imports/` next to the database (`/data/imports/` in Docker), and every trip and line is stored as exported (tables `clubcard_trips` and `clubcard_items`, with the original JSON), including totals, savings, payment and lines that aren't groceries.
+- Every trip goes into your history with its exact time. Products bought on two or more trips become common items with a guessed aisle (`CLUBCARD_MIN_TRIPS` changes the two). Clothes (F&F), bags and gift cards are kept but left out of the figures.
+- Upload a newer export any time: trips already imported are skipped.
+- The export has no product links, so it can't fill a basket by itself. **Import this order** on a few recent online orders saves those.
+
+**You often buy** then shows, for each item, how many trips it was on, roughly how often you buy it (and **due** when it's about time), and what it costs now compared with the first time, e.g. *€2.25 ▲ 6c since 4 Apr*. Tap an item for every purchase: when, how many, the price each and where.
+
 ### When a store changes its site
 
 The helper updates itself from your server. When a store changes its site and the helper stops finding the **Add** button, the part to fix is the `STORES` section and the button patterns at the top of [`userscript/shopping-list.user.js`](userscript/shopping-list.user.js); bump its `@version` so Tampermonkey picks up the change.
@@ -135,9 +146,12 @@ web/
     db.py              SQLite tables and migrations, seeded with the common items
     catalog.py         the starter common items and aisle order
     lookup.py          barcode lookups, store link addresses and product-link checks
+    clubcard.py        reads Tesco's Clubcard data export
+    stats.py           how often each item is bought and what it costs
   frontend/src/
     App.tsx            the page and the My list tab
     Shop.tsx           the Shop online tab
+    History.tsx        Past shopping: uploads, what you buy, how often, prices
     Manage.tsx         the Common items tab
     api.ts             calls to /api
   userscript/
@@ -163,7 +177,9 @@ web/
 | GET | `/api/basket/{store}` | What's still to buy, with the saved product or a search link for each |
 | POST | `/api/basket/{store}/link` | Save a product for a list item `{item_id, url, title}` |
 | POST | `/api/history/{store}/import` | Record a past order `{order_ref, date, items: [{name, qty, url}]}`; saves each product |
-| GET | `/api/history` | Imported orders, newest first, and the items bought most often |
+| POST | `/api/history/tesco/clubcard` | Upload Tesco's Clubcard data file (raw `.json` or `.zip` body) |
+| GET | `/api/history` | Imported trips, newest first, and the items bought most often: trips, about how often, usual quantity, prices |
+| GET | `/api/history/items/{id}` | Every purchase of one common item: when, quantity, price each, where |
 | GET | `/api/barcode/{code}` | Look a barcode up (your items first, then Open Food Facts) |
 | GET | `/api/links` | The Tesco, Dunnes and barcode directory link addresses |
 | GET | `/userscript/shopping-list.user.js` | The browser helper, pointed back at this server |

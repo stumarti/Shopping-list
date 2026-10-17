@@ -129,10 +129,10 @@ async function openStore() {
       basket.set(id, qty);
       return route.fulfill({ status: 204 });
     }
-    if (url.pathname === "/shop/en-IE/orders/ABC-123456") return route.fulfill({ contentType: "text/html", body: orderPage() });
+    if (url.pathname === "/shop/en-IE/orders/ABC-123456") return route.fulfill({ contentType: "text/html; charset=utf-8", body: orderPage() });
     const product = url.pathname.match(/^\/shop\/en-IE\/products\/(\d+)$/);
     const html = product ? productPage(product[1]) : shell("Tesco", `<h1>${url.pathname}</h1>`);
-    return route.fulfill({ contentType: "text/html", body: html });
+    return route.fulfill({ contentType: "text/html; charset=utf-8", body: html });
   });
 
   // What Tampermonkey provides: storage that survives page loads, and requests to the home server.
@@ -212,8 +212,12 @@ test("imports a past order: common items with their products saved, and the purc
   assert.equal(catalog["Coca-Cola 6 x 330ml"].products.tesco.url, "https://www.tesco.ie/shop/en-IE/products/755");
 
   const history = await call("GET", "/history");
+  // The order page showed €4.38 for two cartons: €2.19 each. Lines without a price have none.
+  const milk = history.usual.find((u) => u.name === "Avonmore Fresh Milk 2 Litre");
+  assert.equal(milk.price.now, 2.19);
+  assert.equal(history.usual.find((u) => u.name === "Coca-Cola 6 x 330ml").price, null);
   const order = history.orders.find((o) => o.order_ref === "ABC-123456");
-  assert.deepEqual(order, { store: "tesco", order_ref: "ABC-123456", bought_on: "2026-09-12", products: 3, units: 6 });
+  assert.deepEqual(order, { store: "tesco", order_ref: "ABC-123456", bought_on: "2026-09-12", products: 3, units: 6, source: "order" });
 
   // Importing it again doesn't double up.
   await page.reload();
