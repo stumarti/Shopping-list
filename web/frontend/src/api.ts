@@ -22,6 +22,8 @@ export type CatalogItem = {
   /** The food pyramid shelf you set ("" until you do), and the one guessed from its name and aisle. */
   food_group: string;
   food_group_guess: string;
+  /** Never swap it for a cheaper or in-stock alternative. */
+  exact: boolean;
   /** Shopping trips it was on (a generic item counts its kinds'). */
   trips: number;
   products: Products;
@@ -155,7 +157,7 @@ export type NextShop = {
   skipped: ShopItem[];
 };
 /** A change to a common item. group: the generic item it's a kind of ("" for none); or_set: its pick-one set. */
-export type CommonChange = Partial<Pick<CatalogItem, "name" | "category" | "barcode" | "kcal" | "protein" | "carbs" | "fat" | "food_group">> & {
+export type CommonChange = Partial<Pick<CatalogItem, "name" | "category" | "barcode" | "kcal" | "protein" | "carbs" | "fat" | "food_group" | "exact">> & {
   group?: string;
   or_set?: string;
 };

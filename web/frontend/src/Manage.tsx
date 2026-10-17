@@ -384,6 +384,10 @@ function ItemDetail({
         ) : (
           <p className="muted small">Pick-one sets go on {groupName(item.group_id)}, not on its kinds.</p>
         )}
+        <label className="check">
+          <input type="checkbox" checked={item.exact} onChange={(e) => save({ exact: e.target.checked })} />
+          <span>Never swap: always get exactly this, even if something's cheaper or it's out of stock</span>
+        </label>
         <label>
           <span>
             Barcode

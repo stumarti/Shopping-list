@@ -768,6 +768,11 @@ def test_generic_items_pick_one_sets_and_calories(tmp_path):
     assert plan["Tesco Whole Milk 2L"]["food_group"] == "treats" and plan["Tesco Whole Milk 2L"]["fat"] is None
     assert [g["id"] for g in c.get("/api/food-groups").json()] == ["veg", "starch", "dairy", "protein", "fats", "treats"]
 
+    # Never swap: kept exactly as it is
+    assert c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"exact": True}).json()["exact"] is True
+    assert {i["name"]: i["exact"] for i in c.get("/api/catalog").json()}["Tesco Whole Milk 2L"] is True
+    assert c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"exact": False}).json()["exact"] is False
+
     # A kind can't join a set (its generic item can), and a set's name can't be an item's
     assert c.patch(f"/api/catalog/{ids['Tesco Broccoli Florets 360g']}", json={"or_set": "Protein"}).status_code == 409
     assert c.patch(f"/api/catalog/{ids['Tesco Whole Milk 2L']}", json={"or_set": "Broccoli"}).status_code == 409

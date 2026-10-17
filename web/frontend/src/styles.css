@@ -1674,26 +1674,28 @@ main.wide {
   font-size: 0.8rem;
 }
 
-/* Shop online: your list and the prompt on the left, the store on the right */
+/* Shop online: your list on the left, the prompt and cheaper options on the right */
 .online-layout {
   display: grid;
   gap: 0 24px;
 }
 
 .online-main,
-.online-store {
+.online-side {
   min-width: 0;
 }
 
 @media (min-width: 880px) {
   .online-layout {
-    grid-template-columns: minmax(300px, 1fr) minmax(0, 1.6fr);
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr);
     align-items: start;
   }
 
-  .online-store {
+  .online-side {
     position: sticky;
     top: 8px;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
   }
 }
 
@@ -1765,38 +1767,6 @@ textarea.prompt {
   resize: vertical;
 }
 
-.store-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-  font-size: 0.85rem;
-}
-
-.store-url {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.store-bar a.link {
-  color: var(--accent);
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.online-store iframe {
-  display: block;
-  width: 100%;
-  height: calc(100vh - 150px);
-  min-height: 420px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-}
 
 .online-items .save-link {
   margin-left: 8px;
@@ -2178,4 +2148,120 @@ textarea.prompt {
 .kcal {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.online-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+
+.online-name {
+  min-width: 0;
+}
+
+.online-actions {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 0.8rem;
+}
+
+.online-items .save-link {
+  margin-left: 0;
+}
+
+.online-items .exact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.store-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.button-link {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.button-link:hover {
+  background: var(--accent-soft);
+}
+
+.cheaper {
+  margin: 10px 0 0;
+  padding: 8px 12px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.cheaper legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.cheaper legend label,
+.cheaper .choice label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.cheaper .choice {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.cheaper .saving {
+  margin: 10px 0 0;
+}
+
+.cheaper .saving input {
+  width: 56px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px 6px;
+}
+
+.cheaper .hint {
+  margin-top: 6px;
+}
+
+.prompt-head {
+  margin-top: 14px;
+}
+
+.prompt-head h3 {
+  margin: 0;
+}
+
+.edit-fields label.check {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
 }

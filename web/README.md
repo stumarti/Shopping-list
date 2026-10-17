@@ -18,7 +18,7 @@ A shared shopping list in one Docker container: a React page served by a FastAPI
 - **Barcodes**: type or paste a barcode (8 to 14 digits) and tap **Look up**. It's found in [Open Food Facts](https://world.openfoodfacts.org) (then Open Beauty, Products and Pet Food Facts), and remembered with the item.
 - **Check the shops**: every item links to its search results on [Tesco](https://www.tesco.ie/shop/en-IE/search?query=milk) and [Dunnes](https://www.dunnesstoresgrocery.com/results?q=milk), and to its barcode page on Open Food Facts.
 - **Common items** tab: build your own list of usual items. Paste many at once (one per line), rename them, move them between aisles, add barcodes, or delete the ones you never buy.
-- **Shop online** tab: your next shop on the left, with how it works and a prompt to copy into **Claude in Chrome** so it fills your basket (it's told to stop at a filled basket, never check out, pay or touch your slot). The store's site is on the right; most stores won't show inside another site, so **Open in a new tab** is always there. Tap an item to look it up, and **Save link** to paste its product address so it's exact next time. The browser helper (below) still works too.
+- **Shop online** tab: your next shop on the left; tap an item to look it up on the store's site, **Save link** to paste its product address so it's exact next time, and tick **Never swap** on anything you want exactly as it is. On the right, a prompt to copy into **Claude in Chrome** on your signed-in store tab, which fills your basket and stops there (it's told never to check out, pay or touch your slot). Tick **Look for cheaper options** to have it compare like-for-like products by unit price (€/kg, €/L): **Suggest only** adds your usual items and lists what's cheaper, **Swap automatically** adds the cheaper one and tells you what it swapped, and either way it only counts savings above the % and cents you set. Never swap items are left alone, even when out of stock. The browser helper (below) still works too.
 - Anyone on your network who opens the page sees the same list. It refreshes every 10 seconds.
 
 ## Run it with Docker Compose
@@ -177,7 +177,7 @@ web/
     stats.py           how often each item is bought and what it costs
   frontend/src/
     App.tsx            the page and the My list tab
-    ShopOnline.tsx     the Shop online tab: your list, the Claude in Chrome prompt, the store
+    ShopOnline.tsx     the Shop online tab: your list and the Claude in Chrome prompt, with cheaper options
     Shop.tsx           the older basket-helper page (not shown for now)
     NextShop.tsx       the Next shop tab: the list, maybes, aisles, calories, macros, food pyramid, typical shop
     Spending.tsx       spending and price changes, on Common items
@@ -200,7 +200,7 @@ web/
 | GET | `/api/catalog` | Common items in aisle order, with their saved store products |
 | POST | `/api/catalog` | Add a common item `{name, category, barcode}` |
 | POST | `/api/catalog/bulk` | Add many `{text, category}`, one per line; returns what was added and skipped |
-| PATCH | `/api/catalog/{id}` | Change `{name, category, barcode, kcal, protein, carbs, fat, food_group}`; `group` puts it under a generic item by name (`""` takes it out), `or_set` puts it in a pick-one set |
+| PATCH | `/api/catalog/{id}` | Change `{name, category, barcode, kcal, protein, carbs, fat, food_group, exact}` (`exact`: never swap it); `group` puts it under a generic item by name (`""` takes it out), `or_set` puts it in a pick-one set |
 | DELETE | `/api/catalog/{id}` | Forget a common item |
 | POST | `/api/catalog/clear` | Remove all common items (the list and history stay) |
 | POST | `/api/catalog/rebuild` | Make common items again from the purchase history |
