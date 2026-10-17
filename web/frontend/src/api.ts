@@ -38,6 +38,16 @@ export type FinderStatus = {
   error: string | null;
   found: { catalog_id: number; name: string; barcode: string; product: string; source: string }[];
 };
+export type NutritionStatus = {
+  running: boolean;
+  total: number;
+  done: number;
+  waiting: number;
+  current: string | null;
+  error: string | null;
+  filled: { catalog_id: number; name: string; filled: string[]; basis: string; kcal?: number; protein?: number; carbs?: number; fat?: number }[];
+};
+export type NutritionResult = { item: CatalogItem; found: boolean; filled: string[]; basis: string | null };
 export type ListItem = {
   id: number;
   name: string;
@@ -241,6 +251,11 @@ export const api = {
   finder: () => call<FinderStatus>("/barcodes/find"),
   findBarcodes: (retry = false) => call<FinderStatus>("/barcodes/find", json("POST", { retry })),
   stopFinding: () => call<FinderStatus>("/barcodes/find/stop", { method: "POST" }),
+  /** Calories and macros per pack from Open Food Facts, by the item's barcode (only empty ones, unless overwrite). */
+  fillNutrition: (catalogId: number, overwrite = false) => call<NutritionResult>(`/catalog/${catalogId}/nutrition`, json("POST", { overwrite })),
+  nutritionStatus: () => call<NutritionStatus>("/nutrition/fill"),
+  fillAllNutrition: (retry: boolean) => call<NutritionStatus>("/nutrition/fill", json("POST", { retry })),
+  stopFillingNutrition: () => call<NutritionStatus>("/nutrition/fill/stop", { method: "POST" }),
   nextShop: () => call<NextShop>("/next-shop"),
   /** Pick one option of a pick-one set for the next shop (null to unpick). */
   chooseForShop: (setId: number, catalogId: number | null) =>

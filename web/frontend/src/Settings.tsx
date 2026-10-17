@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { api, type Aisle, type FinderStatus } from "./api";
+import { api, type Aisle, type FinderStatus, type NutritionStatus } from "./api";
 
 type Props = {
   categories: string[];
@@ -17,6 +17,7 @@ export default function Settings({ categories, run }: Props) {
     <>
       <ClubcardUpload run={run} onDone={bump} />
       <BarcodeFinder itemsChanged={itemsChanged} />
+      <NutritionFiller itemsChanged={itemsChanged} />
       <Aisles run={run} />
       <AddCommon categories={categories} run={run} onDone={bump} />
       <StartAgain run={run} onDone={bump} />
@@ -385,6 +386,87 @@ function StartAgain({ run, onDone }: { run: Props["run"]; onDone: () => void }) 
         <p className="muted" role="status">
           {note}
         </p>
+      )}
+    </section>
+  );
+}
+
+
+const FIGURE_NAMES: Record<string, string> = { kcal: "calories", protein: "protein", carbs: "carbs", fat: "fat" };
+
+/** Fill calories and macros for every item with a barcode, from Open Food Facts, in the background. */
+function NutritionFiller({ itemsChanged }: { itemsChanged: number }) {
+  const [s, setS] = useState<NutritionStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const poll = async (call: Promise<NutritionStatus> = api.nutritionStatus()) => {
+    clearTimeout(timer.current);
+    try {
+      const next = await call;
+      setS(next);
+      setError(null);
+      if (next.running) timer.current = setTimeout(() => void poll(), 1500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong.");
+    }
+  };
+  useEffect(() => {
+    void poll();
+    return () => clearTimeout(timer.current);
+  }, [itemsChanged]);
+
+  return (
+    <section aria-labelledby="nutrition-heading">
+      <h2 id="nutrition-heading">Fill calories and macros</h2>
+      <p className="muted">
+        For items with a barcode, looks it up in Open Food Facts and fills calories, protein, carbs and fat for the whole pack (from the per
+        100 g figures and the pack size). Only empty ones are filled: anything you've typed stays.
+      </p>
+      {error && <p className="error-text">{error}</p>}
+      {s?.running ? (
+        <>
+          <progress max={s.total} value={s.done} aria-label="Nutrition lookup progress" />
+          <p className="muted" role="status">
+            {s.done} of {s.total} looked up, {s.filled.length} filled{s.current && `. Now: ${s.current}`}.
+          </p>
+          <button className="link" onClick={() => poll(api.stopFillingNutrition())}>
+            Stop
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="row">
+            <button className="primary" disabled={!s || s.waiting === 0} onClick={() => poll(api.fillAllNutrition(false))}>
+              {s && s.waiting ? `Fill ${s.waiting} ${s.waiting === 1 ? "item" : "items"}` : "Nothing new to fill"}
+            </button>
+            <button className="link" onClick={() => poll(api.fillAllNutrition(true))}>
+              Try again for ones with gaps
+            </button>
+          </div>
+          {s?.error && <p className="error-text">{s.error}</p>}
+          {s && s.total > 0 && !s.error && (
+            <p className="muted" role="status">
+              Last run: looked up {s.done} of {s.total}, filled {s.filled.length}.
+            </p>
+          )}
+        </>
+      )}
+      {!!s?.filled.length && (
+        <ul className="found-list">
+          {s.filled.map((f) => (
+            <li key={f.catalog_id}>
+              <span>
+                {f.name}
+                <span className="muted">
+                  {" "}
+                  · {f.filled.map((x) => FIGURE_NAMES[x]).join(", ")}
+                  {f.kcal !== undefined && ` · ${f.kcal} kcal`} · {f.basis}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   );

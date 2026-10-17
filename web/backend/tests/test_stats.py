@@ -183,3 +183,18 @@ Let me know if you'd like anything else."""
     with pytest.raises(ValueError):
         parse("I added everything!")
     assert key("2 × Tesco Whole Milk 2L [exact: never swap]") == "tesco whole milk 2l"
+
+
+def test_nutrition_per_pack():
+    from app.nutrition import pack_nutrition, pack_size
+    bread = {"product_quantity": 800, "product_quantity_unit": "g",
+             "nutriments": {"energy-kcal_100g": 240, "proteins_100g": 9.1, "carbohydrates_100g": 45.2, "fat_100g": 1.85}}
+    assert pack_nutrition(bread) == {"kcal": 1920, "protein": 72.8, "carbs": 361.6, "fat": 14.8, "size": 800,
+                                     "basis": "per 100 g × 800 g"}
+    # Size from the label when there's no figure; energy only in kJ; drinks per 100 ml
+    assert pack_size({"quantity": "6 x 330 ml"}) == 1980 and pack_size({"quantity": "1.5L"}) == 1500
+    assert pack_size({"quantity": "2 kg"}) == 2000 and pack_size({"quantity": "12 eggs"}) is None
+    cola = pack_nutrition({"quantity": "2 L", "nutriments": {"energy_100g": 180}})
+    assert cola["kcal"] == round(180 / 4.184 * 20) and cola["basis"] == "per 100 ml × 2000 ml" and "protein" not in cola
+    assert pack_nutrition({"quantity": "500 g", "nutriments": {}}) is None
+    assert pack_nutrition({"nutriments": {"energy-kcal_100g": 100}}) is None  # no pack size

@@ -2832,3 +2832,18 @@ button.primary,
 .weekly .axis.year {
   font-weight: 700;
 }
+
+.nutrition-fill {
+  grid-column: 1 / -1;
+  font-size: 0.85rem;
+}
+
+.nutrition-fill button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nutrition-fill p {
+  margin: 4px 0 0;
+}

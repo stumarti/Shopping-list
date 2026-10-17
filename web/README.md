@@ -10,6 +10,7 @@ A shared shopping list in one Docker container: a React page served by a FastAPI
 - **Your typical shop** (beside the next shop): products and spend per shop in each aisle, averaged over your trips in the last year.
 - **Light or dark**: the switch at the top right goes Auto (follows the device), Light, Dark.
 - **On your phone in the shop**: the pages move to a bar along the bottom, and the aisle chips above the list stay at the top as you scroll (each shows how much is left in that aisle). Tap the circle beside an item when it's in the trolley: it drops to **In the trolley** at the bottom, and a bar shows how far through you are. Ticks are kept on that phone for this shop's date, and start fresh for the next shop.
+- **Calories and macros from barcodes**: on an item with a barcode, **Fill from Open Food Facts** works out calories, protein, carbs and fat for the whole pack (Open Food Facts' per 100 g figures × the pack size), and Settings → **Fill calories and macros** does every item with a barcode in the background. Only empty figures are filled; what you've typed stays. Scanning a barcode onto an item with no figures fills them straight away.
 - **Scan barcodes** with your phone's camera: the scan button beside **Add something else** on Next shop ticks an item into the trolley if it's on this shop, or offers to add it (looked up in your items, then Open Food Facts, and remembered with its barcode). The scan button by an item's barcode on Common items sets it. Live scanning needs the page on **https** (phones only allow the camera there); on plain http, **Take a photo** of the barcode works just as well. To get https on Unraid, put it behind a reverse proxy (Nginx Proxy Manager, SWAG) or use Tailscale's `tailscale serve`. Barcodes are read by the browser's own reader where there is one, otherwise by [ZXing](https://github.com/zxing-js/browser), bundled and only loaded when you scan.
 - **Icons** are [Material Symbols](https://fonts.google.com/icons) (rounded), bundled in the page so it works without the internet.
 - **No starter items**: your common items come from what you upload, import or add.
@@ -177,6 +178,7 @@ web/
     lookup.py          barcode lookups, store link addresses and product-link checks
     clubcard.py        reads Tesco's Clubcard data export
     finder.py          finds barcodes for items by name in Open Food Facts
+    nutrition.py       calories and macros per pack from Open Food Facts, by barcode
     stats.py           how often each item is bought and what it costs
     results.py         reads the results block in Claude in Chrome's reply
   frontend/src/
@@ -239,6 +241,9 @@ web/
 | PUT | `/api/aisles/order` | `{ids}` in the new order |
 | POST / GET | `/api/barcodes/find` | Start finding barcodes (`{retry}`) / progress and matches |
 | POST | `/api/barcodes/find/stop` | Stop |
+| POST | `/api/catalog/{id}/nutrition` | Fill an item's calories and macros per pack from Open Food Facts by its barcode (`{overwrite}` to replace yours) |
+| POST / GET | `/api/nutrition/fill` | Fill them for every item with a barcode, in the background (`{retry}`) / progress |
+| POST | `/api/nutrition/fill/stop` | Stop |
 | GET | `/api/barcode/{code}` | Look a barcode up (your items first, then Open Food Facts) |
 | GET | `/api/links` | The Tesco, Dunnes and barcode directory link addresses |
 | GET | `/userscript/shopping-list.user.js` | The browser helper, pointed back at this server |

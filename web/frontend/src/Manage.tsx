@@ -177,6 +177,29 @@ function ItemDetail({
   const [name, setName] = useState(item.name);
   const [barcode, setBarcode] = useState(item.barcode);
   const [scanning, setScanning] = useState(false);
+  const [nutritionNote, setNutritionNote] = useState<string | null>(null);
+  const hasAll = item.kcal !== null && item.protein !== null && item.carbs !== null && item.fat !== null;
+  const hasNone = item.kcal === null && item.protein === null && item.carbs === null && item.fat === null;
+  // Calories and macros from Open Food Facts by barcode; only empty ones, unless replacing.
+  const fillNutrition = (overwrite: boolean) => {
+    setNutritionNote("Looking it up…");
+    void run(async () => {
+      try {
+        const r = await api.fillNutrition(item.id, overwrite);
+        const names = r.filled.map((f) => ({ kcal: "calories", protein: "protein", carbs: "carbs", fat: "fat" })[f] ?? f);
+        setNutritionNote(
+          !r.found
+            ? "Open Food Facts has no nutrition (or no pack size) for this barcode. Type them in from the pack."
+            : names.length
+              ? `Filled ${names.join(", ")} from Open Food Facts (${r.basis}).`
+              : "Nothing to fill: it already had those.",
+        );
+      } catch (e) {
+        setNutritionNote(null);
+        throw e;
+      }
+    });
+  };
   const groupName = (id: number | null) => catalog.find((c) => c.id === id)?.name ?? "";
   const [group, setGroup] = useState(groupName(item.group_id));
   const [orSet, setOrSet] = useState(groupName(item.or_id));
@@ -319,6 +342,23 @@ function ItemDetail({
           <Amount label="Protein" unit="g" value={item.protein} onSave={(v) => save({ protein: v })} />
           <Amount label="Carbs" unit="g" value={item.carbs} onSave={(v) => save({ carbs: v })} />
           <Amount label="Fat" unit="g" value={item.fat} onSave={(v) => save({ fat: v })} />
+          <div className="nutrition-fill">
+            <button
+              type="button"
+              className="link"
+              disabled={!item.barcode}
+              title={item.barcode ? undefined : "Add or scan its barcode first"}
+              onClick={() => fillNutrition(hasAll)}
+            >
+              <Icon name="fire" size={16} /> {hasAll ? "Replace from Open Food Facts" : "Fill from Open Food Facts"}
+            </button>
+            {!item.barcode && <span className="muted"> · needs a barcode</span>}
+            {nutritionNote && (
+              <p className="muted" role="status">
+                {nutritionNote}
+              </p>
+            )}
+          </div>
           <label className="food-group">
             <span>Food group</span>
             <select value={item.food_group} onChange={(e) => save({ food_group: e.target.value })}>
@@ -435,7 +475,8 @@ function ItemDetail({
               onCode={(code) => {
                 setScanning(false);
                 setBarcode(code);
-                void save({ barcode: code });
+                // A new barcode with no figures yet: fill them straight away.
+                void save({ barcode: code }).then(() => hasNone && fillNutrition(false));
               }}
             />
           </Suspense>
