@@ -175,6 +175,7 @@ def test_links(client):
     assert [s["name"] for s in links["stores"]] == ["Tesco", "Dunnes"]
     assert links["stores"][0]["search"] == "https://www.tesco.ie/shop/en-IE/search?query={q}"
     assert links["stores"][1]["search"] == "https://www.dunnesstoresgrocery.com/results?q={q}"
+    assert links["stores"][0]["home"] == "https://www.tesco.ie/shop/en-IE/"
     assert "{code}" in links["barcodes"]["product"] and "{q}" in links["barcodes"]["search"]
 
 

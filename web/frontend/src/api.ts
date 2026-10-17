@@ -41,7 +41,7 @@ export type ListItem = {
   products: Products;
 };
 export type Links = {
-  stores: { id: string; name: string; search: string }[];
+  stores: { id: string; name: string; home: string; search: string }[];
   barcodes: { name: string; product: string; search: string };
 };
 export type PriceSummary = { now: number; now_on: string; first: number; first_on: string; low: number; high: number };

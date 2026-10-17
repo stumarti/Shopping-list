@@ -12,8 +12,17 @@
   color-scheme: light dark;
 }
 
+/* Light or dark from the header switch; otherwise it follows the device. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --ground: #121614;
     --surface: #1b211e;
     --ink: #e8ece9;
@@ -25,6 +34,19 @@
     --danger: #f2b8b5;
     --danger-soft: #3a1f1d;
   }
+}
+
+:root[data-theme="dark"] {
+  --ground: #121614;
+  --surface: #1b211e;
+  --ink: #e8ece9;
+  --muted: #9aa69f;
+  --line: #2d3531;
+  --accent: #4cbb83;
+  --accent-soft: #1f3529;
+  --accent-ink: #08130d;
+  --danger: #f2b8b5;
+  --danger-soft: #3a1f1d;
 }
 
 * {
@@ -722,6 +744,26 @@ a {
   color: var(--accent);
 }
 
+.header-links {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.theme-switch {
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.theme-switch:hover {
+  color: var(--accent);
+}
+
 .row {
   display: flex;
   gap: 8px;
@@ -938,10 +980,15 @@ progress {
 }
 
 @media (prefers-color-scheme: dark) {
-  .weekly {
+  :root:not([data-theme="light"]) .weekly {
     --bar: #3aab72;
     --month-shade: #2a332e;
   }
+}
+
+:root[data-theme="dark"] .weekly {
+  --bar: #3aab72;
+  --month-shade: #2a332e;
 }
 
 .weekly-scroll {
@@ -1040,7 +1087,7 @@ progress {
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --weekly-bg: #1f3529;
     --weekly-ink: #8fd6ae;
     --scheduled-bg: #1c2b40;
@@ -1050,6 +1097,17 @@ progress {
     --added-bg: #2a302c;
     --added-ink: #c5ccc7;
   }
+}
+
+:root[data-theme="dark"] {
+  --weekly-bg: #1f3529;
+  --weekly-ink: #8fd6ae;
+  --scheduled-bg: #1c2b40;
+  --scheduled-ink: #9cc3f2;
+  --unsure-bg: #3a2e15;
+  --unsure-ink: #f0c879;
+  --added-bg: #2a302c;
+  --added-ink: #c5ccc7;
 }
 
 .shop-when .eyebrow {
@@ -1608,4 +1666,137 @@ main.wide {
 
 .kcal-note {
   font-size: 0.8rem;
+}
+
+/* Shop online: your list and the prompt on the left, the store on the right */
+.online-layout {
+  display: grid;
+  gap: 0 24px;
+}
+
+.online-main,
+.online-store {
+  min-width: 0;
+}
+
+@media (min-width: 880px) {
+  .online-layout {
+    grid-template-columns: minmax(300px, 1fr) minmax(0, 1.6fr);
+    align-items: start;
+  }
+
+  .online-store {
+    position: sticky;
+    top: 8px;
+  }
+}
+
+.online-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.online-items li {
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+}
+
+.online-items li:first-child {
+  border-top: none;
+}
+
+.online-items a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.online-items a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.saved-dot {
+  margin-left: 6px;
+  color: var(--accent);
+  font-size: 0.8rem;
+}
+
+.howto {
+  margin: 10px 0 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--ground);
+  font-size: 0.9rem;
+}
+
+.howto summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.howto ol {
+  margin: 8px 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+
+.howto p {
+  margin: 0 0 4px;
+}
+
+textarea.prompt {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 10px 12px;
+  font: 0.8rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  resize: vertical;
+}
+
+.store-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+}
+
+.store-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.store-bar a.link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.online-store iframe {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 150px);
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.online-items .save-link {
+  margin-left: 8px;
+  font-size: 0.8rem;
+}
+
+.online-items .paste {
+  margin-top: 6px;
 }
