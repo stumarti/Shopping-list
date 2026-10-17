@@ -16,16 +16,41 @@ export type Links = {
   stores: { id: string; name: string; search: string }[];
   barcodes: { name: string; product: string; search: string };
 };
+export type PriceSummary = { now: number; now_on: string; first: number; first_on: string; low: number; high: number };
+export type ItemSummary = {
+  trips: number;
+  first_bought: string;
+  last_bought: string;
+  every_days: number | null;
+  usual_qty: number;
+  price: PriceSummary | null;
+};
 export type History = {
-  orders: { store: string; order_ref: string; bought_on: string; products: number; units: number }[];
-  usual: { catalog_id: number; name: string; category: string; orders: number; last_bought: string; usual_qty: number }[];
+  orders: { store: string; order_ref: string; bought_on: string; products: number; units: number; source: string }[];
+  usual: (ItemSummary & { catalog_id: number; name: string; category: string; orders: number })[];
+};
+export type ItemHistory = {
+  item: { id: number; name: string };
+  summary: ItemSummary;
+  purchases: { store: string; bought_on: string; bought_at: string; bought_as: string; qty: number; unit_price: number | null; source: string }[];
+};
+export type ClubcardResult = {
+  trips: number;
+  new_trips: number;
+  already_imported: number;
+  lines: number;
+  new_common_items: number;
+  not_groceries: number;
+  from: string;
+  to: string;
+  saved_as: string;
 };
 export type Product = { barcode: string; name: string; brand: string; quantity: string; category: string; source: string };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+    headers: init?.headers ?? (init?.body ? { "Content-Type": "application/json" } : undefined),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
@@ -43,6 +68,10 @@ export const api = {
   list: () => call<ListItem[]>("/list"),
   links: () => call<Links>("/links"),
   history: () => call<History>("/history"),
+  itemHistory: (catalogId: number) => call<ItemHistory>(`/history/items/${catalogId}`),
+  /** Tesco's Clubcard data export, sent exactly as downloaded (.json or .zip). */
+  importClubcard: (file: File) =>
+    call<ClubcardResult>("/history/tesco/clubcard", { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" } }),
   barcode: (code: string) => call<Product>(`/barcode/${encodeURIComponent(code)}`),
   add: (name: string, category: string, qty = 1, barcode = "") =>
     call<ListItem>("/list", json("POST", { name, category, qty, barcode })),

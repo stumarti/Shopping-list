@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 from pathlib import Path
 
@@ -10,8 +11,10 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
+from . import clubcard
 from .catalog import CATEGORIES, guess_aisle
 from .db import Database, category_order
+from .stats import item_stats
 from .lookup import STORES, Fetch, fill_link, http_fetch, is_barcode, link_templates, lookup_barcode, product_url
 
 USERSCRIPT_NAME = "shopping-list.user.js"
@@ -75,6 +78,7 @@ class OrderLine(BaseModel):
     name: str = Field(min_length=1, max_length=300)
     qty: int = Field(default=1, ge=1, le=99)
     url: str = Field(min_length=1, max_length=500)
+    price: float | None = Field(default=None, ge=0, le=10_000)  # what the line cost in total
 
 
 class PastOrder(BaseModel):
@@ -98,12 +102,20 @@ def sort_items(items: list[dict]) -> list[dict]:
     return sorted(items, key=lambda i: (category_order(i["category"]), i["name"].lower()))
 
 
+def _neg_date(iso: str | None) -> int:
+    """Sort key putting the most recent date first."""
+    return -datetime.date.fromisoformat(iso).toordinal() if iso else 0
+
+
 def aisle(category: str | None) -> str:
     return category if category in CATEGORIES else "Other"
 
 
 def create_app(db_path: str | None = None, static_dir: str | None = None, fetch: Fetch = http_fetch) -> FastAPI:
     db = Database(db_path or os.environ.get("DB_PATH", "shopping.db"))
+
+    def imports_dir() -> Path:
+        return Path(os.environ.get("IMPORTS_DIR") or Path(db.path).resolve().parent / "imports")
     app = FastAPI(title="Shopping list")
 
     def list_item(item_id: int) -> dict:
@@ -342,9 +354,11 @@ def create_app(db_path: str | None = None, static_dir: str | None = None, fetch:
                         (catalog_id, store, url, title[:200]),
                     )
                 added += conn.execute(
-                    "INSERT OR IGNORE INTO purchases (store, order_ref, bought_on, catalog_id, name, qty, url) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (store, body.order_ref, bought_on, catalog_id, title[:300], line.qty, url),
+                    "INSERT OR IGNORE INTO purchases "
+                    "(store, order_ref, bought_on, bought_at, catalog_id, name, qty, url, unit_price) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (store, body.order_ref, bought_on, bought_on, catalog_id, title[:300], line.qty, url,
+                     None if line.price is None else round(line.price / line.qty, 2)),
                 ).rowcount
         return {
             "order_ref": body.order_ref,
@@ -355,20 +369,153 @@ def create_app(db_path: str | None = None, static_dir: str | None = None, fetch:
             "already_imported": added == 0 and skipped < len(body.items),
         }
 
+    @app.post("/api/history/tesco/clubcard")
+    async def import_clubcard(request: Request):
+        """Tesco's Clubcard data export, uploaded as the raw .json (or .zip) file.
+
+        Every trip goes into the history. Products bought on at least CLUBCARD_MIN_TRIPS trips (default 2)
+        also become common items, so one-off buys don't crowd the list."""
+        raw = await request.body()
+        if len(raw) > 200 * 1024 * 1024:
+            raise HTTPException(413, "That file is over 200 MB. Upload the purchases file on its own.")
+        try:
+            trips, not_groceries = clubcard.parse(clubcard.load(raw))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        except Exception:
+            raise HTTPException(422, "Couldn't read that file. Upload the file from Tesco's data download as it came.")
+        if not trips:
+            raise HTTPException(422, "No shopping trips found in that file. Is it the Tesco data download?")
+        min_trips = int(os.environ.get("CLUBCARD_MIN_TRIPS", "2"))
+        saved_as = await run_in_threadpool(keep_upload, raw)
+        result = await run_in_threadpool(save_clubcard, trips, not_groceries, min_trips)
+        return {**result, "saved_as": saved_as}
+
+    def keep_upload(raw: bytes) -> str:
+        """Keep the file exactly as uploaded, next to the database, so nothing in it is ever lost."""
+        folder = imports_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        ext = "zip" if raw[:2] == b"PK" else "json"
+        path = folder / f"tesco-clubcard-{stamp}.{ext}"
+        n = 2
+        while path.exists():
+            path = folder / f"tesco-clubcard-{stamp}-{n}.{ext}"
+            n += 1
+        path.write_bytes(raw)
+        return path.name
+
+    def save_clubcard(trips: list, not_groceries: int, min_trips: int) -> dict:
+        new_trips = lines = new_items = 0
+        with db.tx() as conn:
+            # Every trip and every line, exactly as exported.
+            for t in trips:
+                r = t.raw
+                if conn.execute(
+                    "INSERT OR IGNORE INTO clubcard_trips (ref, timestamp, type, basket_gross, basket_net, savings, "
+                    "items_count, raw) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (t.ref, str(r.get("timestamp", "")), str(r.get("type", "")), clubcard.number(r.get("basketValueGross")),
+                     clubcard.number(r.get("basketValueNet")), clubcard.number(r.get("overallBasketSavings")),
+                     clubcard.number(r.get("numberOfItems")), json.dumps(r, ensure_ascii=False)),
+                ).rowcount:
+                    for n, line in enumerate(i for i in r.get("items") or [] if isinstance(i, dict)):
+                        name = " ".join(str(line.get("name") or "").split())
+                        conn.execute(
+                            "INSERT INTO clubcard_items (trip_ref, line_no, name, quantity, weight, price, volume, "
+                            "grocery, raw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (t.ref, n, name, clubcard.number(line.get("quantity")), clubcard.number(line.get("weight")),
+                             clubcard.number(line.get("price")), clubcard.number(line.get("volume")),
+                             int(bool(name) and clubcard.is_grocery(name)), json.dumps(line, ensure_ascii=False)),
+                        )
+            done = {r["order_ref"] for r in conn.execute("SELECT DISTINCT order_ref FROM purchases WHERE store = 'tesco'")}
+            fresh = [t for t in trips if t.ref not in done]
+            # How many trips (in the file and already imported) each product appears on.
+            counts: dict[str, int] = {}
+            for t in trips:
+                for name in t.lines:
+                    counts[name.lower()] = counts.get(name.lower(), 0) + 1
+            for r in conn.execute("SELECT lower(name) AS n, count(DISTINCT order_ref) AS c FROM purchases "
+                                  "WHERE store = 'tesco' AND order_ref NOT LIKE 'clubcard:%' GROUP BY lower(name)"):
+                counts[r["n"]] = counts.get(r["n"], 0) + r["c"]
+            catalog_ids: dict[str, int | None] = {}
+
+            def catalog_for(title: str) -> int | None:
+                key = title.lower()
+                if key in catalog_ids:
+                    return catalog_ids[key]
+                name = tidy_name(title[:80])
+                row = conn.execute("SELECT id FROM catalog WHERE lower(name) = lower(?)", (name,)).fetchone()
+                if row:
+                    catalog_ids[key] = row["id"]
+                elif counts.get(key, 0) >= min_trips:
+                    nonlocal new_items
+                    catalog_ids[key] = conn.execute(
+                        "INSERT INTO catalog (name, category, custom) VALUES (?, ?, 1)", (name, guess_aisle(title))
+                    ).lastrowid
+                    new_items += 1
+                else:
+                    catalog_ids[key] = None
+                return catalog_ids[key]
+
+            for t in fresh:
+                new_trips += 1
+                for title, line in t.lines.items():
+                    lines += conn.execute(
+                        "INSERT OR IGNORE INTO purchases "
+                        "(store, order_ref, bought_on, bought_at, catalog_id, name, qty, unit_price, source) "
+                        "VALUES ('tesco', ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (t.ref, t.bought_on, t.bought_at, catalog_for(title), title[:300], line["qty"],
+                         line["unit_price"], "clubcard " + t.kind),
+                    ).rowcount
+        dates = sorted(t.bought_on for t in trips)
+        return {
+            "trips": len(trips),
+            "new_trips": new_trips,
+            "already_imported": len(trips) - new_trips,
+            "lines": lines,
+            "new_common_items": new_items,
+            "not_groceries": not_groceries,
+            "from": dates[0],
+            "to": dates[-1],
+        }
+
     @app.get("/api/history")
     def history():
         """Imported orders, newest first, and the items bought most often."""
         orders = db.rows(
-            "SELECT store, order_ref, bought_on, count(*) AS products, sum(qty) AS units FROM purchases "
-            "GROUP BY store, order_ref ORDER BY bought_on DESC, order_ref"
+            "SELECT store, order_ref, bought_on, count(*) AS products, sum(qty) AS units, max(source) AS source "
+            "FROM purchases GROUP BY store, order_ref ORDER BY bought_on DESC, order_ref"
         )
-        usual = db.rows(
-            "SELECT c.id AS catalog_id, c.name, c.category, count(DISTINCT p.store || p.order_ref) AS orders, "
-            "max(p.bought_on) AS last_bought, round(avg(p.qty), 1) AS usual_qty "
-            "FROM purchases p JOIN catalog c ON c.id = p.catalog_id "
-            "GROUP BY c.id ORDER BY orders DESC, last_bought DESC, c.name LIMIT 40"
+        rows = db.rows(
+            "SELECT p.catalog_id, c.name, c.category, p.store, p.order_ref, p.bought_on, p.qty, p.unit_price "
+            "FROM purchases p JOIN catalog c ON c.id = p.catalog_id ORDER BY p.bought_at, p.id"
         )
-        return {"orders": orders, "usual": usual}
+        by_item: dict[int, list[dict]] = {}
+        for r in rows:
+            by_item.setdefault(r["catalog_id"], []).append(r)
+        usual = []
+        for catalog_id, item_rows in by_item.items():
+            stats = item_stats(item_rows)
+            usual.append({
+                "catalog_id": catalog_id,
+                "name": item_rows[0]["name"],
+                "category": item_rows[0]["category"],
+                "orders": stats["trips"],
+                **stats,
+            })
+        usual.sort(key=lambda u: (-u["orders"], _neg_date(u["last_bought"]), u["name"]))
+        return {"orders": orders, "usual": usual[:40]}
+
+    @app.get("/api/history/items/{catalog_id}")
+    def item_history(catalog_id: int):
+        """Every time this item was bought, oldest first, with what it cost, plus the summary."""
+        item = catalog_item(catalog_id)
+        rows = db.rows(
+            "SELECT store, order_ref, bought_on, bought_at, name AS bought_as, qty, unit_price, source "
+            "FROM purchases WHERE catalog_id = ? ORDER BY bought_at, id",
+            (catalog_id,),
+        )
+        return {"item": {"id": item["id"], "name": item["name"]}, "summary": item_stats(rows), "purchases": rows}
 
     @app.get("/userscript/" + USERSCRIPT_NAME, include_in_schema=False)
     def userscript(request: Request):

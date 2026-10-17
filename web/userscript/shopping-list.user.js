@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Shopping list → basket
 // @namespace    shopping-list
-// @version      1.1.0
+// @version      1.2.0
 // @description  Fill your Tesco or Dunnes basket from your shopping list. It never checks out, pays or books a slot.
 // @match        https://www.tesco.ie/*
 // @match        https://www.dunnesstoresgrocery.com/*
@@ -270,6 +270,12 @@
     return m ? Math.max(1, Math.min(99, Number(m[1]))) : 1;
   }
 
+  /** What the order line cost, e.g. "€4.38" (the first euro amount on the line), or null. */
+  function priceIn(box, name) {
+    const m = clean(box.textContent).replace(name, " ").match(/€\s?(\d{1,4}(?:[.,]\d{2}))/);
+    return m ? Number(m[1].replace(",", ".")) : null;
+  }
+
   function readOrder() {
     const lines = new Map();
     for (const a of document.querySelectorAll("a[href]")) {
@@ -287,7 +293,9 @@
       }
       lines.set(path, { name, box, url: location.origin + path });
     }
-    return [...lines.values()].filter((l) => l.name).map((l) => ({ name: l.name, qty: quantityIn(l.box, l.name), url: l.url }));
+    return [...lines.values()]
+      .filter((l) => l.name)
+      .map((l) => ({ name: l.name, qty: quantityIn(l.box, l.name), url: l.url, price: priceIn(l.box, l.name) }));
   }
 
   function orderDate() {

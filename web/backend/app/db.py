@@ -59,6 +59,55 @@ MIGRATIONS = [
     );
     CREATE INDEX purchases_catalog ON purchases (catalog_id)
     """,
+    # 4: history lines without a product link (Tesco's Clubcard data export), when exactly they were bought,
+    #    the price paid per item, and where the line came from; plus every Clubcard trip and line exactly as
+    #    exported, so nothing in the file is lost
+    """
+    CREATE TABLE purchases_new (
+        id INTEGER PRIMARY KEY,
+        store TEXT NOT NULL,
+        order_ref TEXT NOT NULL,
+        bought_on TEXT NOT NULL,
+        catalog_id INTEGER REFERENCES catalog (id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        qty INTEGER NOT NULL DEFAULT 1,
+        url TEXT NOT NULL DEFAULT '',
+        bought_at TEXT NOT NULL DEFAULT '',
+        unit_price REAL,
+        source TEXT NOT NULL DEFAULT 'order',
+        imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (store, order_ref, name, url)
+    );
+    INSERT INTO purchases_new (id, store, order_ref, bought_on, catalog_id, name, qty, url, bought_at, imported_at)
+        SELECT id, store, order_ref, bought_on, catalog_id, name, qty, url, bought_on, imported_at FROM purchases;
+    DROP TABLE purchases;
+    ALTER TABLE purchases_new RENAME TO purchases;
+    CREATE INDEX purchases_catalog ON purchases (catalog_id);
+    CREATE INDEX purchases_order ON purchases (store, order_ref);
+    CREATE TABLE clubcard_trips (
+        ref TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT '',
+        basket_gross REAL,
+        basket_net REAL,
+        savings REAL,
+        items_count INTEGER,
+        raw TEXT NOT NULL,
+        imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE clubcard_items (
+        trip_ref TEXT NOT NULL REFERENCES clubcard_trips (ref) ON DELETE CASCADE,
+        line_no INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        quantity REAL,
+        weight REAL,
+        price REAL,
+        volume REAL,
+        grocery INTEGER NOT NULL,
+        raw TEXT NOT NULL,
+        PRIMARY KEY (trip_ref, line_no)
+    )
+    """,
 ]
 
 
