@@ -50,7 +50,8 @@ export default function NutritionTable({ catalog, run }: { catalog: CatalogItem[
   const food = catalog.filter(
     (c) => c.kind !== "or" && (c.food_group !== "" || c.food_group_guess !== "" || (!NOT_FOOD.test(c.category) && c.category !== "Other")),
   );
-  const missing = (c: CatalogItem) => FIGURES.some((f) => c[f.key] === null);
+  // A gap: no figure of its own, and (for a generic item) none from its kinds either.
+  const missing = (c: CatalogItem) => FIGURES.some((f) => c[f.key] === null && c.kinds_average?.[f.key] == null);
   const q = find.trim().toLowerCase();
   const rows = food
     .filter((c) => (!missingOnly || missing(c)) && (!q || c.name.toLowerCase().includes(q)))
@@ -149,6 +150,9 @@ function Cell({ item, figure, per100, grams, run }: { item: CatalogItem; figure:
   const [text, setText] = useState(shown);
   useEffect(() => setText(shown), [shown]);
   const needsSize = per100 && !grams;
+  // A generic item with no figure of its own uses its kinds' average: shown greyed out.
+  const avgPack = pack === null ? (item.kinds_average?.[figure] ?? null) : null;
+  const average = avgPack === null ? null : per100 ? (grams ? round((avgPack * 100) / grams, false) : null) : avgPack;
 
   const commit = () => {
     const t = text.trim().replace(",", ".");
@@ -164,7 +168,7 @@ function Cell({ item, figure, per100, grams, run }: { item: CatalogItem; figure:
       inputMode={whole && !per100 ? "numeric" : "decimal"}
       value={text}
       disabled={needsSize}
-      placeholder={needsSize ? "size?" : "–"}
+      placeholder={needsSize ? "size?" : average !== null ? `≈ ${average}` : "–"}
       title={needsSize ? "Add the pack size first" : undefined}
       aria-label={`${figure === "kcal" ? "Calories" : figure} ${per100 ? "per 100 g" : "per pack"} for ${item.name}`}
       onChange={(e) => setText(e.target.value.replace(/[^\d.,]/g, ""))}

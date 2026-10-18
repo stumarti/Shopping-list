@@ -17,6 +17,8 @@ A shared shopping list in one Docker container: a React page served by a FastAPI
 - **Icons** are [Material Symbols](https://fonts.google.com/icons) (rounded), bundled in the page so it works without the internet.
 - **No starter items**: your common items come from what you upload, import or add.
 - **Purchased items** (what you've bought, and anything you've added), most bought first or aisle by aisle. On a wide screen the list sits beside the item you open; on a phone it opens in the list. Each item has three tabs: **History**, **Nutrition** and **Details**. Tap one to see the weeks you bought it (a square per week, four to a column so habits line up, shaded by month, with the years above, filled when you bought it, hollow when you didn't shop at all that week; it opens on the latest weeks, scroll back for older ones), its price over time, what you've spent on it, when it's expected next and every purchase; and to rename it, move it, set its barcode, calories, macros and food group, or delete it.
+- **Generic first, exact if you like**: on Purchased items, everything about an item (when it's due, how often, the weekly squares, its price and what you've spent) counts all its kinds together by default, e.g. every kind of broccoli. Tap one of the kinds at the top of its History to see just that product. Spending's price changes work the same way: **Generic items** or **Exact products**.
+- **Generic items' calories and macros**: a generic item with no figures of its own uses the average of its kinds (shown greyed out in its boxes), and that's what the next shop adds up. Type your own, per pack or per one, to use that instead.
 - **Spending and prices** (top of Purchased items): what you've spent, a shop and a week (weeks you didn't shop don't count), month by month, and how prices of the things you buy again and again have moved, with what's gone up and down most.
 - **Settings** (top right): upload your Tesco data, **Find barcodes** for your items in Open Food Facts, set up your **aisles** (rename, reorder, add, remove), add items in bulk, and **Start again**: remove all items, then **Rebuild from history** (every product from an online order, and anything bought on two or more trips). **Clear all** is also at the top of Purchased items. Clearing never touches your list, purchase history or uploaded files.
 - **Type anything** that isn't there, pick its aisle, and it's added to your list and remembered as a common item.
@@ -259,12 +261,12 @@ web/
 | POST / DELETE | `/api/next-shop/skip/{catalog_id}` | Take an item off the next shop / put it back |
 | POST | `/api/next-shop/choose/{set_id}` | Pick one option of a pick-one set for the next shop `{catalog_id}` (`null` to unpick) |
 | GET | `/api/typical-shop` | A typical shop over the last year: products, spend and calories per shop, aisle by aisle, and calories a week over weeks you shopped |
-| GET | `/api/spending` | Total spend, a shop, a week, month by month, and price changes of things you buy again and again |
+| GET | `/api/spending` | (`?exact=true`: price changes per product, not per generic item) Total spend, a shop, a week, month by month, and price changes of things you buy again and again |
 | GET | `/api/food-groups` | The food pyramid's shelves, bottom first |
 | POST | `/api/history/manual` | Record a shop by hand `{store, date, items: [{name, qty, price}]}`; bought things come off the list |
 | DELETE | `/api/history/manual/{order_ref}` | Take back a shop recorded by hand |
 | GET | `/api/history` | Imported trips, newest first, and the items bought most often: trips, about how often, usual quantity, prices |
-| GET | `/api/history/items/{id}` | Every purchase of one common item: when, quantity, price each, where |
+| GET | `/api/history/items/{id}` | An item's history, as its generic item with every kind (default) or `?exact=true` for just that product |
 | GET | `/api/aisles` | Aisles in order, with how many items each has |
 | POST / PATCH / DELETE | `/api/aisles`, `/api/aisles/{id}` | Add `{name}`, rename `{name}`, remove (`?move_to={id}`) |
 | PUT | `/api/aisles/order` | `{ids}` in the new order |

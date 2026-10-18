@@ -3198,3 +3198,54 @@ code.command {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Compare as the generic item or one exact product */
+.view-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.view-pick button {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.8rem;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-pick button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.prices-head {
+  margin-top: 14px;
+}
+
+.prices-head h4 {
+  margin: 0;
+}
+
+.pyramid .shelf-name .icon {
+  color: var(--accent);
+  vertical-align: -3px;
+}
+
+.nutrition-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}

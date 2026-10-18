@@ -24,6 +24,8 @@ export type CatalogItem = {
   food_group_guess: string;
   /** Never swap it for a cheaper or in-stock alternative. */
   exact: boolean;
+  /** For a generic item: the average of its kinds' figures, used wherever it has none of its own. */
+  kinds_average: { kcal: number | null; protein: number | null; carbs: number | null; fat: number | null } | null;
   /** Shopping trips it was on (a generic item counts its kinds'). */
   trips: number;
   products: Products;
@@ -82,6 +84,8 @@ export type History = {
 };
 export type ItemHistory = {
   item: { id: number; name: string };
+  /** generic: the generic item with all its kinds (the default); exact: just this product. */
+  view: "generic" | "exact";
   summary: ItemSummary;
   /** Set when the timing covers a generic item and its kinds (this item is one of them, or has some). */
   kind: { id: number; name: string; kinds: number } | null;
@@ -221,7 +225,8 @@ export const api = {
   list: () => call<ListItem[]>("/list"),
   links: () => call<Links>("/links"),
   history: () => call<History>("/history"),
-  itemHistory: (catalogId: number) => call<ItemHistory>(`/history/items/${catalogId}`),
+  /** exact: just this product, instead of its generic item with every kind (the default). */
+  itemHistory: (catalogId: number, exact = false) => call<ItemHistory>(`/history/items/${catalogId}${exact ? "?exact=true" : ""}`),
   /** Tesco's Clubcard data export, sent exactly as downloaded (.json or .zip). */
   /** A shop you did yourself, so the history and the next shop move on. */
   recordShop: (store: string, date: string, items: { name: string; qty: number; price: number | null }[]) =>
@@ -269,7 +274,8 @@ export const api = {
   chooseForShop: (setId: number, catalogId: number | null) =>
     call<NextShop>(`/next-shop/choose/${setId}`, json("POST", { catalog_id: catalogId })),
   typicalShop: () => call<TypicalShop>("/typical-shop"),
-  spending: () => call<Spending>("/spending"),
+  /** exact: price changes per product, instead of per generic item (the default). */
+  spending: (exact = false) => call<Spending>(`/spending${exact ? "?exact=true" : ""}`),
   /** Regulars and things due soon that aren't on the next shop. */
   forgotten: () => call<Forgotten>("/next-shop/forgotten"),
   /** Claude in Chrome's reply, pasted back: what's in the basket, swapped and missing. */

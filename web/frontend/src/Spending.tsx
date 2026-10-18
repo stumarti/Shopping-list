@@ -44,10 +44,12 @@ function niceMax(n: number) {
 export default function Spending({ refresh }: { refresh: number }) {
   const [data, setData] = useState<Data>(null);
   const [hover, setHover] = useState<Month | null>(null);
+  // Price changes per generic item (all kinds of broccoli together, the default), or per exact product.
+  const [exact, setExact] = useState(false);
   const [box, W] = useWidth<HTMLDivElement>(640);
   useEffect(() => {
-    api.spending().then(setData, () => setData(null));
-  }, [refresh]);
+    api.spending(exact).then(setData, () => setData(null));
+  }, [refresh, exact]);
   if (!data) return null;
 
   const months = allMonths(data.months);
@@ -141,9 +143,19 @@ export default function Spending({ refresh }: { refresh: number }) {
 
         {p && (
           <>
-            <h4>Prices</h4>
+            <div className="section-head prices-head">
+              <h4>Prices</h4>
+              <div className="order" role="radiogroup" aria-label="Compare prices by">
+                <button role="radio" aria-checked={!exact} aria-pressed={!exact} onClick={() => setExact(false)}>
+                  Generic items
+                </button>
+                <button role="radio" aria-checked={exact} aria-pressed={exact} onClick={() => setExact(true)}>
+                  Exact products
+                </button>
+              </div>
+            </div>
             <p>
-              The {p.products} things you've bought for at least three months cost {p.change >= 0 ? "more" : "less"} now:{" "}
+              The {p.products} {exact ? "products" : "things"} you've bought for at least three months cost {p.change >= 0 ? "more" : "less"} now:{" "}
               <strong>
                 {p.change >= 0 ? "up" : "down"} {pct(p.change)}
               </strong>

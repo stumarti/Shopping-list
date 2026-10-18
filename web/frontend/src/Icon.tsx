@@ -29,8 +29,15 @@ import unknown from "@material-symbols/svg-400/rounded/help.svg?raw";
 import check from "@material-symbols/svg-400/rounded/fact_check.svg?raw";
 import scan from "@material-symbols/svg-400/rounded/barcode_scanner.svg?raw";
 import camera from "@material-symbols/svg-400/rounded/photo_camera.svg?raw";
+// The food pyramid's shelves
+import veg from "@material-symbols/svg-400/rounded/nutrition.svg?raw";
+import bread from "@material-symbols/svg-400/rounded/bakery_dining.svg?raw";
+import milk from "@material-symbols/svg-400/rounded/local_drink.svg?raw";
+import protein from "@material-symbols/svg-400/rounded/egg_alt.svg?raw";
+import fats from "@material-symbols/svg-400/rounded/water_drop.svg?raw";
+import treats from "@material-symbols/svg-400/rounded/cookie.svg?raw";
 
-const SOURCES = { cart, cartFill, store, list, settings, light, dark, auto, close, add, checked, unchecked, copy, open, link, lock, savings, fire, chart, event, trash, undo, search, basket, swap, missing, unknown, check, scan, camera };
+const SOURCES = { cart, cartFill, store, list, settings, light, dark, auto, close, add, checked, unchecked, copy, open, link, lock, savings, fire, chart, event, trash, undo, search, basket, swap, missing, unknown, check, scan, camera, veg, bread, milk, protein, fats, treats };
 export type IconName = keyof typeof SOURCES;
 
 // Just the drawing: the path data from each file.

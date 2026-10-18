@@ -239,6 +239,8 @@ function ItemDetail({
   title?: boolean;
 }) {
   const [tab, setTab] = useState<"history" | "nutrition" | "details">("history");
+  // Compare as the generic item (null: all its kinds together, the default) or one exact product.
+  const [focus, setFocus] = useState<number | null>(null);
   const [history, setHistory] = useState<ItemHistory | null>(null);
   const [showTable, setShowTable] = useState(false);
   const [name, setName] = useState(item.name);
@@ -275,8 +277,8 @@ function ItemDetail({
   const setNames = catalog.filter((c) => c.kind === "or");
 
   useEffect(() => {
-    api.itemHistory(item.id).then(setHistory, () => setHistory(null));
-  }, [item.id]);
+    api.itemHistory(focus ?? item.id, focus !== null).then(setHistory, () => setHistory(null));
+  }, [item.id, focus]);
   useEffect(() => {
     setName(item.name);
     setBarcode(item.barcode);
@@ -296,6 +298,9 @@ function ItemDetail({
 
   const s = history?.summary;
   const bought = history?.purchases.length ?? 0;
+  const priced = history?.purchases.filter((p) => p.unit_price !== null).length ?? 0;
+  // Several kinds counted together: their prices are a mix.
+  const mixed = Boolean(history && history.view === "generic" && history.by_kind.length > 1);
 
   return (
     <div className="detail">
@@ -330,34 +335,36 @@ function ItemDetail({
         <p className="muted">No purchases of this yet.</p>
       ) : (
         <>
+          {history.kind && history.by_kind.length > 0 && (
+            <div className="view-pick" role="radiogroup" aria-label="Compare as">
+              <button role="radio" aria-checked={focus === null} className={focus === null ? "on" : ""} onClick={() => setFocus(null)}>
+                All {history.kind.name}
+              </button>
+              {history.by_kind.map((k) => (
+                <button key={k.id} role="radio" aria-checked={focus === k.id} className={focus === k.id ? "on" : ""} onClick={() => setFocus(k.id)}>
+                  {k.name}
+                </button>
+              ))}
+            </div>
+          )}
           <p className="next">
             <NextPurchase expected={s!.next_expected} />
           </p>
           {history.kind && (
             <p className="kind-note">
-              {history.kind.id === item.id
-                ? `Counting all ${history.kind.kinds} kinds of ${item.name} together.`
-                : `Counting all kinds of ${history.kind.name} together, since any of them will do.`}
+              {history.view === "generic"
+                ? `All kinds of ${history.kind.name} counted together, since any of them will do. Pick one above for just that product.`
+                : `Just ${history.item.name}. Pick All ${history.kind.name} to count every kind.`}
             </p>
           )}
           <p className="muted stats">
-            {history.kind && history.kind.id !== item.id ? `${history.kind.name} bought` : "Bought"} {s!.trips}{" "}
-            {s!.trips === 1 ? "time" : "times"}
+            Bought {s!.trips} {s!.trips === 1 ? "time" : "times"}
             {s!.every_days !== null && `, about every ${s!.every_days === 7 ? "week" : `${s!.every_days} days`}`}, last {fmt(s!.last_bought)}
             {s!.usual_qty > 1 && `. Usually ${Math.round(s!.usual_qty)} at a time`}.
-            {history.product && (
-              <>
-                {" "}
-                This one: {history.product.trips} {history.product.trips === 1 ? "time" : "times"}
-                {history.product.last_bought && `, last ${fmt(history.product.last_bought)}`}.
-              </>
-            )}
-            {s!.price && !(history.by_kind.length === 0 && history.purchases.filter((p) => p.unit_price !== null).length > 1) && (
-              <> {euro(s!.price.now)} each.</>
-            )}
-            {history.spend > 0 && <> You've spent {euro(history.spend)} on {history.kind?.id === item.id ? "them" : "it"}.</>}
+            {s!.price && priced <= 1 && <> {euro(s!.price.now)} each.</>}
+            {history.spend > 0 && <> You've spent {euro(history.spend)}{mixed ? " on them all" : " on it"}.</>}
           </p>
-          {history.by_kind.length > 0 && (
+          {mixed && (
             <ul className="by-kind">
               {history.by_kind.map((k) => (
                 <li key={k.id}>
@@ -371,9 +378,10 @@ function ItemDetail({
               ))}
             </ul>
           )}
-          {history.by_kind.length === 0 && history.purchases.filter((p) => p.unit_price !== null).length > 1 && (
+          {priced > 1 && (
             <>
               <h4>Price</h4>
+              {mixed && <p className="muted small">Each kind's price as bought, so a jump can be a different kind. Pick one above to follow one product.</p>}
               <PriceChart purchases={history.purchases} />
             </>
           )}
@@ -415,11 +423,17 @@ function ItemDetail({
       {tab === "nutrition" && (
         <div role="tabpanel" className="edit-fields">
         <fieldset className="nutrition">
-          <legend>Per pack</legend>
-          <Amount label="Calories" unit="kcal" value={item.kcal} whole onSave={(v) => save({ kcal: v })} />
-          <Amount label="Protein" unit="g" value={item.protein} onSave={(v) => save({ protein: v })} />
-          <Amount label="Carbs" unit="g" value={item.carbs} onSave={(v) => save({ carbs: v })} />
-          <Amount label="Fat" unit="g" value={item.fat} onSave={(v) => save({ fat: v })} />
+          <legend>Per pack (or each)</legend>
+          <Amount label="Calories" unit="kcal" value={item.kcal} average={item.kinds_average?.kcal} whole onSave={(v) => save({ kcal: v })} />
+          <Amount label="Protein" unit="g" value={item.protein} average={item.kinds_average?.protein} onSave={(v) => save({ protein: v })} />
+          <Amount label="Carbs" unit="g" value={item.carbs} average={item.kinds_average?.carbs} onSave={(v) => save({ carbs: v })} />
+          <Amount label="Fat" unit="g" value={item.fat} average={item.kinds_average?.fat} onSave={(v) => save({ fat: v })} />
+          {item.kinds_average && (
+            <p className="muted nutrition-note">
+              A generic item: an empty box uses the average of its {kinds.length} kinds (shown in grey), and that's what the next shop
+              counts. Type your own figure, per pack or per one, to use that instead.
+            </p>
+          )}
           <div className="nutrition-fill">
             <button
               type="button"
@@ -607,7 +621,22 @@ function ItemDetail({
 }
 
 /** A number per pack, saved when you leave the box; empty clears it. */
-function Amount({ label, unit, value, whole, onSave }: { label: string; unit: string; value: number | null; whole?: boolean; onSave: (v: number | null) => void }) {
+function Amount({
+  label,
+  unit,
+  value,
+  average,
+  whole,
+  onSave,
+}: {
+  label: string;
+  unit: string;
+  value: number | null;
+  /** A generic item's kinds' average, shown when there's no figure of its own. */
+  average?: number | null;
+  whole?: boolean;
+  onSave: (v: number | null) => void;
+}) {
   const shown = value === null ? "" : String(value);
   const [text, setText] = useState(shown);
   useEffect(() => setText(shown), [shown]);
@@ -626,7 +655,8 @@ function Amount({ label, unit, value, whole, onSave }: { label: string; unit: st
           value={text}
           inputMode={whole ? "numeric" : "decimal"}
           maxLength={7}
-          placeholder="–"
+          placeholder={average != null ? `≈ ${average}` : "–"}
+          title={average != null && value === null ? "The average of its kinds" : undefined}
           onChange={(e) => setText(e.target.value.replace(whole ? /[^\d]/g : /[^\d.,]/g, ""))}
           onBlur={commit}
         />

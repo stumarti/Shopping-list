@@ -750,6 +750,11 @@ def test_generic_items_pick_one_sets_and_calories(tmp_path):
     c.patch(f"/api/catalog/{ids['Tesco Broccoli Florets 360g']}", json={"kcal": 130})
     plan = c.get("/api/next-shop").json()
     assert next(i for i in plan["items"] if i["name"] == "Broccoli")["kcal_low"] == 100
+    # The generic item shows that average; your own figure for it wins
+    assert {i["name"]: i for i in c.get("/api/catalog").json()}["Broccoli"]["kinds_average"]["kcal"] == 100
+    c.patch(f"/api/catalog/{broccoli['id']}", json={"kcal": 90})
+    assert next(i for i in c.get("/api/next-shop").json()["items"] if i["name"] == "Broccoli")["kcal_low"] == 90
+    c.patch(f"/api/catalog/{broccoli['id']}", json={"kcal": None})
     # Clearing calories
     assert c.patch(f"/api/catalog/{chicken}", json={"kcal": None}).json()["kcal"] is None
 
@@ -833,20 +838,26 @@ def test_item_history_works_out_timing_for_the_kind(tmp_path):
         c.patch(f"/api/catalog/{ids[name]}", json={"group": "broccoli"})
     broccoli = next(i["id"] for i in c.get("/api/catalog").json() if i["name"] == "Broccoli")
 
-    # A kind: weekly, because broccoli is bought weekly; its own price and count
+    # A kind, by default as its generic item: weekly, because broccoli is bought weekly, every kind's prices
     t = c.get(f"/api/history/items/{ids['Tesco Tenderstem Broccoli 200g']}").json()
-    assert t["kind"] == {"id": broccoli, "name": "Broccoli", "kinds": 2}
+    assert t["view"] == "generic" and t["kind"] == {"id": broccoli, "name": "Broccoli", "kinds": 2}
     assert t["summary"]["every_days"] == 7 and t["summary"]["trips"] == 6
     assert t["summary"]["next_expected"] == "2026-10-17"
-    assert t["summary"]["price"]["low"] == 2.0 and t["summary"]["price"]["high"] == 2.4  # tenderstem only
+    assert t["summary"]["price"]["low"] == 1.0 and t["summary"]["price"]["high"] == 2.4  # both kinds
     assert t["product"] == {"trips": 3, "last_bought": "2026-10-03"}
-    assert [p["bought_as"] for p in t["purchases"]] == ["Tesco Tenderstem Broccoli 200g"] * 3
+    assert len(t["purchases"]) == 6 and t["spend"] == 9.6
     assert sum(1 for w in t["weekly"] if w["qty"]) == 6  # the grid shows every broccoli week
-    assert t["weekly"][-1]["kinds"] == ["Tesco Broccoli Florets 360g"] if t["weekly"][-1]["qty"] else True
 
-    # The generic item: the same timing, prices split by kind instead of mixed
+    # The same kind, exactly: just tenderstem, every fortnight
+    x = c.get(f"/api/history/items/{ids['Tesco Tenderstem Broccoli 200g']}?exact=true").json()
+    assert x["view"] == "exact" and x["summary"]["every_days"] == 14 and x["summary"]["trips"] == 3
+    assert x["summary"]["price"]["low"] == 2.0 and x["summary"]["price"]["high"] == 2.4  # tenderstem only
+    assert [p["bought_as"] for p in x["purchases"]] == ["Tesco Tenderstem Broccoli 200g"] * 3
+    assert sum(1 for w in x["weekly"] if w["qty"]) == 3 and x["spend"] == 6.6
+
+    # The generic item: the same as the kind's default view, with each kind's own count and price
     g = c.get(f"/api/history/items/{broccoli}").json()
-    assert g["summary"]["every_days"] == 7 and g["summary"]["price"] is None
+    assert g["summary"]["every_days"] == 7 and g["summary"]["price"]["now"] == 1.0
     assert [(k["name"], k["trips"], k["price"]["now"]) for k in g["by_kind"]] == [
         ("Tesco Broccoli Florets 360g", 3, 1.0), ("Tesco Tenderstem Broccoli 200g", 3, 2.4)]
     assert len(g["purchases"]) == 6
@@ -854,6 +865,10 @@ def test_item_history_works_out_timing_for_the_kind(tmp_path):
     # An item with no kinds is unchanged
     m = c.get(f"/api/history/items/{ids['Tesco Whole Milk 2L']}").json()
     assert m["kind"] is None and m["by_kind"] == [] and m["product"] is None and m["summary"]["price"]["now"] == 2.19
+    assert c.get(f"/api/history/items/{ids['Tesco Whole Milk 2L']}?exact=true").json()["view"] == "generic"  # nothing to narrow
+
+    # Spending: price changes per generic item by default, per product with exact
+    assert c.get("/api/spending").json()["total"] == c.get("/api/spending?exact=true").json()["total"]
 
 
 def test_basket_check_and_forgotten(tmp_path):
@@ -988,3 +1003,22 @@ def test_record_a_shop_by_hand(tmp_path):
     assert c.delete(f"/api/history/manual/{t['order_ref']}").status_code == 404
     imported = next(o for o in c.get("/api/history").json()["orders"] if o["source"] != "manual")
     assert c.delete(f"/api/history/manual/{imported['order_ref']}").status_code == 404
+
+
+def test_price_changes_by_generic_item_or_exact_product(tmp_path):
+    import datetime as dt
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none"),
+                              today=lambda: dt.date(2026, 10, 15)))
+    # Florets go up from €1.00 to €1.20 over the summer; tenderstem stays at €2.00
+    days = ["2026-05-02", "2026-05-09", "2026-06-06", "2026-07-04", "2026-08-29", "2026-09-05"]
+    shops = [trip(f"{d} 11:00:00", [("Tesco Broccoli Florets 360g", 1, 1.0 if n < 3 else 1.2),
+                                    ("Tesco Tenderstem Broccoli 200g", 1, 2.0)]) for n, d in enumerate(days)]
+    upload(c, {"purchases": shops})
+    ids = {i["name"]: i["id"] for i in c.get("/api/catalog").json()}
+    for name in ["Tesco Tenderstem Broccoli 200g", "Tesco Broccoli Florets 360g"]:
+        c.patch(f"/api/catalog/{ids[name]}", json={"group": "broccoli"})
+
+    generic = c.get("/api/spending").json()["prices"]
+    assert generic["products"] == 1 and [m["name"] for m in generic["up"]] == ["Broccoli"]
+    exact = c.get("/api/spending?exact=true").json()["prices"]
+    assert exact["products"] == 2 and [m["name"] for m in exact["up"]] == ["Tesco Broccoli Florets 360g"]
