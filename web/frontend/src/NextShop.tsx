@@ -1,6 +1,6 @@
 import { Fragment, lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, type CatalogItem, type FoodGroup, type NextShop as Plan, type ShopItem, type TypicalShop } from "./api";
-import Icon from "./Icon";
+import Icon, { type IconName } from "./Icon";
 import { byTrips, OrderToggle, useOrder } from "./Order";
 
 const Scanner = lazy(() => import("./Scanner"));
@@ -768,6 +768,9 @@ function Nutrition({
 }
 
 /** The food pyramid with this shop on it: how many things on each shelf, top shelf (treats) smallest. */
+// An icon for each shelf of the pyramid.
+const SHELF_ICONS: Record<string, IconName> = { veg: "veg", starch: "bread", dairy: "milk", protein: "protein", fats: "fats", treats: "treats" };
+
 function Pyramid({ items, groups }: { items: ShopItem[]; groups: FoodGroup[] }) {
   const count = (id: string) => items.filter((i) => i.food_group === id).length;
   const notFood = items.filter((i) => !i.food_group).length;
@@ -783,7 +786,9 @@ function Pyramid({ items, groups }: { items: ShopItem[]; groups: FoodGroup[] }) 
             <li key={g.id} style={{ width: `${55 + (45 * i) / (shelves.length - 1)}%` }} title={`${g.name}: ${g.advice}`}>
               <span className="shelf-fill" style={{ width: `${(n / most) * 100}%` }} aria-hidden="true" />
               <span className="shelf-text">
-                <span className="shelf-name">{g.name}</span>
+                <span className="shelf-name">
+                  <Icon name={SHELF_ICONS[g.id] ?? "veg"} size={16} /> {g.name}
+                </span>
                 <span className="muted">
                   {n} · {g.advice}
                 </span>

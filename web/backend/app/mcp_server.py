@@ -64,7 +64,7 @@ def _named(items: list[dict], name: str) -> dict | None:
 def build(app, token: str | None = None) -> tuple[Route, Callable[[], contextlib.AbstractAsyncContextManager]]:
     """The /mcp route, and the context to run it in while the app runs."""
     token = token if token is not None else os.environ.get("MCP_TOKEN", "")
-    server = MCPServer("Shopping list", instructions=INSTRUCTIONS, version=os.environ.get("APP_VERSION", "dev"))
+    server = MCPServer("Press", instructions=INSTRUCTIONS, version=os.environ.get("APP_VERSION", "dev"))
 
     async def api(method: str, path: str, **kw):
         async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url="http://shopping-list") as client:

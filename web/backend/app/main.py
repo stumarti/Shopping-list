@@ -189,7 +189,7 @@ def create_app(
 
     def imports_dir() -> Path:
         return Path(os.environ.get("IMPORTS_DIR") or Path(db.path).resolve().parent / "imports")
-    app = FastAPI(title="Shopping list")
+    app = FastAPI(title="Press")
 
     def list_item(item_id: int) -> dict:
         rows = db.rows("SELECT * FROM list_items WHERE id = ?", (item_id,))
@@ -213,9 +213,22 @@ def create_app(
         return items
 
     def food_guess(items: list[dict]) -> list[dict]:
-        """Add the pyramid shelf the item's name and aisle suggest, shown until you pick one."""
+        """Add the pyramid shelf the item's name and aisle suggest, shown until you pick one; and for a generic
+        item, the average of its kinds' calories and macros (used wherever it has no figure of its own)."""
+        kinds: dict[int, list[dict]] = {}
+        for k in db.rows("SELECT group_id, kcal, protein, carbs, fat FROM catalog WHERE group_id IS NOT NULL"):
+            kinds.setdefault(k["group_id"], []).append(k)
         for i in items:
             i["food_group_guess"] = guess_food_group(i["name"], i["category"])
+            mine = kinds.get(i["id"])
+            if mine:
+                avg = {}
+                for f in ("kcal", *MACROS):
+                    values = [k[f] for k in mine if k[f] is not None]
+                    avg[f] = (round(sum(values) / len(values), 0 if f == "kcal" else 1) if values else None)
+                i["kinds_average"] = avg
+            else:
+                i["kinds_average"] = None
         return items
 
     def catalog_item(item_id: int) -> dict:
@@ -1270,13 +1283,13 @@ def create_app(
         return {"orders": orders, "usual": usual[:40], "suggestions": group_suggestions(usual, today())}
 
     @app.get("/api/history/items/{catalog_id}")
-    def item_history(catalog_id: int):
+    def item_history(catalog_id: int, exact: bool = False):
         """Every time this item was bought, oldest first, with what it cost, plus the summary.
 
-        Timing is worked out for the kind where there is one: for a kind of something (Tenderstem, a kind of
-        Broccoli) and for the generic item itself, every kind's purchases count, because buying florets one week
-        and tenderstem the next is buying broccoli every week. Prices stay per product: for a kind, its own;
-        for a generic item, one line per kind, since a mix of kinds' prices means little."""
+        By default it's the generic item: for a kind of something (Tenderstem, a kind of Broccoli) and for the
+        generic item itself, every kind's purchases count, timing, weekly squares, prices and spend alike,
+        because buying florets one week and tenderstem the next is buying broccoli every week. exact=true
+        narrows all of it to this one product. by_kind lists each kind's own count and price either way."""
         item = catalog_item(catalog_id)
         root = catalog_item(item["group_id"]) if item.get("group_id") else item
         rows = db.rows(
@@ -1288,19 +1301,15 @@ def create_app(
             (root["id"], root["id"]),
         )
         products = {r["catalog_id"] for r in rows}
-        summary = item_stats(rows)
+        # Part of a generic item: it has kinds (bought or not yet), or it is one. Only then is there a choice of view.
+        has_kinds = bool(db.rows("SELECT 1 FROM catalog WHERE group_id = ? LIMIT 1", (root["id"],)))
+        grouped = has_kinds or len(products) > 1 or root["id"] != catalog_id
         own = [r for r in rows if r["catalog_id"] == catalog_id]
-        if root["id"] != catalog_id:
-            # A kind: timing for the whole kind, price and counts for this product.
-            mine = item_stats(own) if own else None
-            summary["price"] = mine["price"] if mine else None
-            product = {"trips": mine["trips"] if mine else 0, "last_bought": mine["last_bought"] if mine else None}
-        else:
-            product = None
-            if len(products) > 1:
-                summary["price"] = None
+        view = "exact" if exact and grouped else "generic"
+        used = own if view == "exact" else rows
+        mine = item_stats(own) if own else None
         by_kind = []
-        if len(products) > 1:
+        if grouped:
             for kind_id in products:
                 kr = [r for r in rows if r["catalog_id"] == kind_id]
                 ks = item_stats(kr)
@@ -1309,26 +1318,29 @@ def create_app(
             by_kind.sort(key=lambda k: (-k["trips"], k["name"]))
         return {
             "item": {"id": item["id"], "name": item["name"]},
-            # Whose timing this is: the generic item, when it has kinds or this is one of them.
-            "kind": {"id": root["id"], "name": root["name"], "kinds": len(products)} if len(products) > 1 or root["id"] != catalog_id else None,
-            "summary": summary,
-            "product": product,
+            "view": view,
+            # The generic item it belongs to, when it has kinds or this is one of them.
+            "kind": {"id": root["id"], "name": root["name"], "kinds": len(products)} if grouped else None,
+            "summary": item_stats(used),
+            # For a kind: how often this product itself was bought.
+            "product": {"trips": mine["trips"] if mine else 0, "last_bought": mine["last_bought"] if mine else None}
+            if root["id"] != catalog_id else None,
             "by_kind": by_kind,
-            "weekly": weekly(rows, today(), shopped={r["w"] for r in db.rows(
+            "weekly": weekly(used, today(), shopped={r["w"] for r in db.rows(
                 "SELECT DISTINCT date(bought_on, '-' || ((cast(strftime('%w', bought_on) AS integer) + 6) % 7) || ' days') AS w "
                 "FROM purchases")}),
-            # What you've spent on it: this product, or for a generic item every kind.
-            "spend": round(sum(r["unit_price"] * r["qty"] for r in (own if root["id"] != catalog_id else rows)
-                               if r["unit_price"] is not None), 2),
-            "purchases": own if root["id"] != catalog_id else rows,
+            "spend": round(sum(r["unit_price"] * r["qty"] for r in used if r["unit_price"] is not None), 2),
+            "purchases": used,
         }
 
     @app.get("/api/spending")
-    def spend():
-        """What you've spent, month by month, and how prices of what you buy have moved."""
+    def spend(exact: bool = False):
+        """What you've spent, month by month, and how prices of what you buy have moved: per generic item by
+        default (all kinds of broccoli together), or per exact product with exact=true."""
+        item = "p.catalog_id, c.name" if exact else "coalesce(c.group_id, c.id) AS catalog_id, coalesce(r.name, c.name) AS name"
         rows = db.rows(
-            "SELECT p.catalog_id, c.name, p.bought_on, p.qty, p.unit_price, p.store || '|' || p.order_ref AS trip "
-            "FROM purchases p LEFT JOIN catalog c ON c.id = p.catalog_id"
+            f"SELECT {item}, p.bought_on, p.qty, p.unit_price, p.store || '|' || p.order_ref AS trip "
+            "FROM purchases p LEFT JOIN catalog c ON c.id = p.catalog_id LEFT JOIN catalog r ON r.id = c.group_id"
         )
         return spending(rows, today())
 

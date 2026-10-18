@@ -3198,3 +3198,107 @@ code.command {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Compare as the generic item or one exact product */
+.view-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.view-pick button {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.8rem;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-pick button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.prices-head {
+  margin-top: 14px;
+}
+
+.prices-head h4 {
+  margin: 0;
+}
+
+.pyramid .shelf-name .icon {
+  color: var(--accent);
+  vertical-align: -3px;
+}
+
+.nutrition-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+/* Press: the mark (a kitchen press, the cupboard) and the wordmark */
+:root {
+  --brand-ink: var(--accent-ink); /* white on the light green, near-black on the dark one */
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.brand-mark {
+  flex: none;
+  color: var(--accent);
+}
+
+.brand-words {
+  display: grid;
+  line-height: 1;
+}
+
+.brand-name {
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.brand-tag {
+  margin-top: 3px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@media (max-width: 600px) {
+  .brand-mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .brand-name {
+    font-size: 1.35rem;
+  }
+}
+
+.title-row {
+  align-items: center;
+}

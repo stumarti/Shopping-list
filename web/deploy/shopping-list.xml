@@ -7,7 +7,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/__REPO__</Support>
   <Project>https://github.com/__REPO__</Project>
-  <Overview>A shared shopping list for the house. Common items grouped by aisle, barcode lookups, links to Tesco and Dunnes, and a browser helper that fills your online basket (it never checks out).</Overview>
+  <Overview>Press: a shared shopping list for the house. Your items grouped by aisle, barcode lookups, links to Tesco and Dunnes, and a browser helper that fills your online basket (it never checks out).</Overview>
   <Category>Tools: Productivity:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <Config Name="Web UI port" Target="8080" Default="8080" Mode="tcp" Description="Port to open the list on." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
