@@ -159,7 +159,21 @@ export default function App() {
     <main className={tab === "list" || tab === "shop" || tab === "common" ? "wide" : undefined}>
       <header>
         <div className="title-row">
-          <h1>Shopping list</h1>
+          <h1 className="brand">
+            <svg className="brand-mark" viewBox="0 0 512 512" width="36" height="36" aria-hidden="true">
+              <rect width="512" height="512" rx="116" fill="currentColor" />
+              <rect x="132" y="104" width="248" height="290" rx="30" fill="none" stroke="var(--brand-ink)" strokeWidth="30" />
+              <line x1="256" y1="104" x2="256" y2="394" stroke="var(--brand-ink)" strokeWidth="26" />
+              <circle cx="226" cy="252" r="16" fill="var(--brand-ink)" />
+              <circle cx="286" cy="252" r="16" fill="var(--brand-ink)" />
+              <line x1="168" y1="394" x2="168" y2="420" stroke="var(--brand-ink)" strokeWidth="26" strokeLinecap="round" />
+              <line x1="344" y1="394" x2="344" y2="420" stroke="var(--brand-ink)" strokeWidth="26" strokeLinecap="round" />
+            </svg>
+            <span className="brand-words">
+              <span className="brand-name">Press</span>
+              <span className="brand-tag">shopping list</span>
+            </span>
+          </h1>
           <span className="header-links">
             <ThemeSwitch />
             <a

@@ -189,7 +189,7 @@ def create_app(
 
     def imports_dir() -> Path:
         return Path(os.environ.get("IMPORTS_DIR") or Path(db.path).resolve().parent / "imports")
-    app = FastAPI(title="Shopping list")
+    app = FastAPI(title="Press")
 
     def list_item(item_id: int) -> dict:
         rows = db.rows("SELECT * FROM list_items WHERE id = ?", (item_id,))
