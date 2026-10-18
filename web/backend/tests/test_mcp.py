@@ -79,6 +79,8 @@ def test_mcp_tools(tmp_path):
         assert history["summary"]["trips"] == 6 and history["spent_eur"] == 13.14
         assert m.call("spending")["trips"] == 6
         assert m.call("find_items", query="butter")[0]["name"] == "Kerrygold Butter 227g"
+        recorded = m.call("record_shop", store="Lidl", date="2026-10-14", items=[{"name": "Kerrygold Butter 227g", "qty": 1, "price": 3.5}])
+        assert recorded["products"] == 1 and recorded["store"] == "Lidl"
 
 
 def test_mcp_token(tmp_path):

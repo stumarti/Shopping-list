@@ -7,6 +7,7 @@ import WeeklyChart from "./WeeklyChart";
 import Icon from "./Icon";
 
 const Scanner = lazy(() => import("./Scanner"));
+const NutritionTable = lazy(() => import("./NutritionTable"));
 
 type Props = {
   catalog: CatalogItem[];
@@ -37,6 +38,7 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
   };
   const [order, setOrder] = useOrder();
   const [foodGroups, setFoodGroups] = useState<FoodGroup[]>([]);
+  const [macros, setMacros] = useState(false);
   useEffect(() => {
     api.foodGroups().then(setFoodGroups, () => setFoodGroups([]));
   }, []);
@@ -94,8 +96,22 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
     <section aria-labelledby="common-heading">
       <div className="section-head">
         <h2 id="common-heading">Common items</h2>
-        {count > 0 && <OrderToggle order={order} setOrder={setOrder} />}
+        {count > 0 && (
+          <span className="common-head-actions">
+            <button className={`link macros-toggle${macros ? " on" : ""}`} aria-pressed={macros} onClick={() => setMacros(!macros)}>
+              <Icon name="fire" size={16} /> {macros ? "Back to items" : "Calories & macros"}
+            </button>
+            {!macros && <OrderToggle order={order} setOrder={setOrder} />}
+          </span>
+        )}
       </div>
+      {macros && (
+        <Suspense fallback={<p className="muted">Loading…</p>}>
+          <NutritionTable catalog={catalog} run={run} />
+        </Suspense>
+      )}
+      {!macros && (
+      <>
       <p className="muted">
         {count} items
         {count > 0 && (
@@ -149,6 +165,8 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
           The number is how many shopping trips each item was on. Open an item to group kinds of one thing under a generic item (Kind of:
           Broccoli), or to put things where one will do into a pick-one set (Pick one of: Protein).
         </p>
+      )}
+      </>
       )}
     </section>
     </>
