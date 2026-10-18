@@ -23,7 +23,7 @@ const fmt = (iso: string, opts: Intl.DateTimeFormatOptions = { day: "numeric", m
   day(iso).toLocaleDateString("en-IE", opts);
 const daysFromToday = (iso: string) => Math.round((day(iso).getTime() - day(new Date().toISOString()).getTime()) / 86_400_000);
 
-/** Your common items, most bought first or aisle by aisle. Kinds of one thing sit under their generic item
+/** Your purchased items (and any you added), most bought first or aisle by aisle. Kinds of one thing sit under their generic item
  * (Broccoli: tenderstem, florets). Tap one for its weekly history and when you'll want it next. */
 export default function Manage({ catalog, categories, links, groupBy, run }: Props) {
   const [filter, setFilter] = useState("");
@@ -39,6 +39,8 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
   const [order, setOrder] = useOrder();
   const [foodGroups, setFoodGroups] = useState<FoodGroup[]>([]);
   const [macros, setMacros] = useState(false);
+  // On a wide screen the open item sits in a panel beside the list; on a phone it opens in the list.
+  const wide = useWide(880);
   useEffect(() => {
     api.foodGroups().then(setFoodGroups, () => setFoodGroups([]));
   }, []);
@@ -55,9 +57,17 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
   // Kinds show when unfolded, when your search matches one, or when one of them is open.
   const kindsShown = (id: number) => unfolded.has(id) || (f !== "" && kindsOf(id).some(matches)) || kindsOf(id).some((k) => k.id === open);
 
+  // Open: in the side panel on a wide screen, opened in the list on a phone.
+  const isOpen = (id: number) => (wide && !macros ? panelItem?.id === id : open === id);
+
   const row = (item: CatalogItem, kind = false) => (
-    <li key={item.id} className={`${open === item.id ? "open" : ""}${kind ? " kind" : ""}`}>
-      <button className="common-name" aria-expanded={open === item.id} onClick={() => setOpen(open === item.id ? null : item.id)}>
+    <li key={item.id} className={`${isOpen(item.id) ? "open" : ""}${kind ? " kind" : ""}`}>
+      <button
+        className="common-name"
+        aria-expanded={wide ? undefined : isOpen(item.id)}
+        aria-current={wide && isOpen(item.id) ? "true" : undefined}
+        onClick={() => setOpen(wide ? item.id : open === item.id ? null : item.id)}
+      >
         <span>
           {item.name}
           {item.or_id !== null && sets.has(item.or_id) && <span className="tag-or"> or {sets.get(item.or_id)}</span>}
@@ -66,7 +76,7 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
         <span className="common-right">
           <span className="muted trips">{item.trips > 0 ? `${item.trips}×` : ""}</span>
           <span className="chev" aria-hidden="true">
-            {open === item.id ? "▾" : "▸"}
+            {wide ? "›" : isOpen(item.id) ? "▾" : "▸"}
           </span>
         </span>
       </button>
@@ -76,8 +86,9 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
           {!kindsShown(item.id) && <span className="muted"> · {kindsOf(item.id).slice(0, 3).map((k) => k.name).join(", ")}{kindsOf(item.id).length > 3 ? "…" : ""}</span>}
         </button>
       )}
-      {open === item.id && (
+      {open === item.id && !wide && (
         <ItemDetail
+          key={item.id}
           item={item}
           catalog={catalog}
           categories={categories}
@@ -90,12 +101,17 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
     </li>
   );
 
+  // The item in the side panel: the one you opened, or else the most bought.
+  const firstItem = groups[0]?.[1][0] ?? null;
+  const panelItem = wide && !macros ? (catalog.find((c) => c.id === open) ?? firstItem) : null;
+
   return (
     <>
     <Spending refresh={catalog.length} />
-    <section aria-labelledby="common-heading">
+    <div className={panelItem ? "items-layout" : undefined}>
+    <section aria-labelledby="common-heading" className="items-list">
       <div className="section-head">
-        <h2 id="common-heading">Common items</h2>
+        <h2 id="common-heading">Purchased items</h2>
         {count > 0 && (
           <span className="common-head-actions">
             <button className={`link macros-toggle${macros ? " on" : ""}`} aria-pressed={macros} onClick={() => setMacros(!macros)}>
@@ -120,7 +136,7 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
             <button
               className="link danger"
               onClick={() => {
-                if (confirm(`Remove all ${count} common items? Your list and purchase history stay, and Settings → Rebuild from history can bring them back.`))
+                if (confirm(`Remove all ${count} items? Your list and purchase history stay, and Settings → Rebuild from history can bring them back.`))
                   void run(api.clearCommon);
               }}
             >
@@ -131,7 +147,7 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
       </p>
       {count === 0 ? (
         <p className="empty">
-          No common items yet. Upload your Tesco data, or add some, in <a href="#settings">Settings</a>.
+          No items yet. Upload your Tesco data, or add some, in <a href="#settings">Settings</a>.
         </p>
       ) : (
         <input
@@ -140,7 +156,7 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
           placeholder="Find an item or barcode…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          aria-label="Find a common item"
+          aria-label="Find an item"
         />
       )}
       {groups.map(([cat, items]) => (
@@ -162,15 +178,44 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
       ))}
       {count > 0 && (
         <p className="muted hint">
-          The number is how many shopping trips each item was on. Open an item to group kinds of one thing under a generic item (Kind of:
-          Broccoli), or to put things where one will do into a pick-one set (Pick one of: Protein).
+          The number is how many shopping trips each item was on. In an item's Details, group kinds of one thing under a generic item
+          (Kind of: Broccoli), or put things where one will do into a pick-one set (Pick one of: Protein).
         </p>
       )}
       </>
       )}
     </section>
+    {panelItem && (
+      <section className="items-panel" aria-label={panelItem.name}>
+        <ItemDetail
+          key={panelItem.id}
+          item={panelItem}
+          catalog={catalog}
+          categories={categories}
+          foodGroups={foodGroups}
+          links={links}
+          run={run}
+          onGone={() => setOpen(null)}
+          title
+        />
+      </section>
+    )}
+    </div>
     </>
   );
+}
+
+/** Whether the window is at least this wide, kept up to date. */
+function useWide(px: number) {
+  const query = `(min-width: ${px}px)`;
+  const [wide, setWide] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const onChange = () => setWide(m.matches);
+    m.addEventListener("change", onChange);
+    return () => m.removeEventListener("change", onChange);
+  }, [query]);
+  return wide;
 }
 
 function ItemDetail({
@@ -181,6 +226,7 @@ function ItemDetail({
   links,
   run,
   onGone,
+  title = false,
 }: {
   item: CatalogItem;
   catalog: CatalogItem[];
@@ -189,7 +235,10 @@ function ItemDetail({
   links: Links | null;
   run: Props["run"];
   onGone: () => void;
+  /** Show the item's name on top (in the side panel, where the row isn't beside it). */
+  title?: boolean;
 }) {
+  const [tab, setTab] = useState<"history" | "nutrition" | "details">("history");
   const [history, setHistory] = useState<ItemHistory | null>(null);
   const [showTable, setShowTable] = useState(false);
   const [name, setName] = useState(item.name);
@@ -250,6 +299,31 @@ function ItemDetail({
 
   return (
     <div className="detail">
+      {title && (
+        <div className="detail-title">
+          <h3>{item.name}</h3>
+          <span className="muted">
+            {item.category}
+            {item.trips > 0 && ` · on ${item.trips} ${item.trips === 1 ? "trip" : "trips"}`}
+          </span>
+        </div>
+      )}
+      <div className="detail-tabs" role="tablist" aria-label={`About ${item.name}`}>
+        {(
+          [
+            ["history", "History"],
+            ["nutrition", "Nutrition"],
+            ["details", "Details"],
+          ] as const
+        ).map(([t, label]) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "history" && (
+        <div role="tabpanel">
       {!history ? (
         <p className="muted">Loading…</p>
       ) : bought === 0 ? (
@@ -335,25 +409,11 @@ function ItemDetail({
           )}
         </>
       )}
+        </div>
+      )}
 
-      <div className="edit-fields">
-        <label>
-          <span>Name</span>
-          <input
-            value={name}
-            maxLength={80}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => (name.trim() && name.trim() !== item.name ? save({ name }) : setName(item.name))}
-          />
-        </label>
-        <label>
-          <span>Aisle</span>
-          <select value={item.category} onChange={(e) => save({ category: e.target.value })}>
-            {categories.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </label>
+      {tab === "nutrition" && (
+        <div role="tabpanel" className="edit-fields">
         <fieldset className="nutrition">
           <legend>Per pack</legend>
           <Amount label="Calories" unit="kcal" value={item.kcal} whole onSave={(v) => save({ kcal: v })} />
@@ -393,6 +453,29 @@ function ItemDetail({
             </select>
           </label>
         </fieldset>
+        </div>
+      )}
+
+      {tab === "details" && (
+        <div role="tabpanel">
+          <div className="edit-fields two">
+        <label>
+          <span>Name</span>
+          <input
+            value={name}
+            maxLength={80}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => (name.trim() && name.trim() !== item.name ? save({ name }) : setName(item.name))}
+          />
+        </label>
+        <label>
+          <span>Aisle</span>
+          <select value={item.category} onChange={(e) => save({ category: e.target.value })}>
+            {categories.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+        </label>
         {kinds.length > 0 ? (
           <div className="kinds">
             <span>Kinds of {item.name}</span>
@@ -431,7 +514,7 @@ function ItemDetail({
               value={group}
               maxLength={80}
               list={`generics-${item.id}`}
-              placeholder="e.g. Broccoli, to group kinds of one thing"
+              placeholder="e.g. Broccoli"
               onChange={(e) => setGroup(e.target.value)}
               onBlur={() => group.trim() !== groupName(item.group_id) && save({ group: group.trim() })}
             />
@@ -449,7 +532,7 @@ function ItemDetail({
               value={orSet}
               maxLength={80}
               list={`sets-${item.id}`}
-              placeholder="e.g. Protein: shows as one line, you pick one"
+              placeholder="e.g. Protein"
               onChange={(e) => setOrSet(e.target.value)}
               onBlur={() => orSet.trim() !== groupName(item.or_id) && save({ or_set: orSet.trim() })}
             />
@@ -499,7 +582,7 @@ function ItemDetail({
             />
           </Suspense>
         )}
-      </div>
+          </div>
       <div className="detail-foot">
         <span className="links">
           {itemLinks(links, item).map((l) => (
@@ -517,6 +600,8 @@ function ItemDetail({
           Delete item
         </button>
       </div>
+        </div>
+      )}
     </div>
   );
 }

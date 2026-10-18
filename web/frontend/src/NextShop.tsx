@@ -665,7 +665,7 @@ function Nutrition({
   return (
     <div className="kcal" aria-live="polite">
       {known.length === 0 ? (
-        <p className="muted">Add calories per pack to your common items to see what this shop comes to.</p>
+        <p className="muted">Add calories per pack to your items (Purchased items → Calories & macros) to see what this shop comes to.</p>
       ) : (
         <>
           <p className="kcal-line">
@@ -737,7 +737,7 @@ function Nutrition({
         <div className="kcal-row">
           <p className="kcal-label">Macros in this shop</p>
           {withMacros.length === 0 ? (
-            <p className="muted kcal-note">Add protein, carbs and fat per pack on the Common items page to see these.</p>
+            <p className="muted kcal-note">Add protein, carbs and fat per pack on the Purchased items page to see these.</p>
           ) : (
             <>
               <ul className="macros">
@@ -794,7 +794,7 @@ function Pyramid({ items, groups }: { items: ShopItem[]; groups: FoodGroup[] }) 
       </ol>
       <p className="muted kcal-note">
         Things on this shop on each shelf of the food pyramid.{notFood > 0 && ` ${plural(notFood, "thing isn't", "things aren't")} food.`} Set an
-        item's food group on the Common items page if it's guessed wrong.
+        item's food group on the Purchased items page if it's guessed wrong.
       </p>
     </details>
   );
