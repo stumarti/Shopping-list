@@ -14,6 +14,7 @@
   <Config Name="Data" Target="/data" Default="/mnt/user/appdata/shopping-list" Mode="rw" Description="Where the list is stored. Back this up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/shopping-list</Config>
   <Config Name="PUID" Target="PUID" Default="99" Description="Owner of the data folder (99 = nobody)." Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Description="Group of the data folder (100 = users)." Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
+  <Config Name="MCP token" Target="MCP_TOKEN" Default="" Description="Optional password for the MCP server at /mcp (for Claude). Set one before the app is reachable from outside your home network." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
   <Config Name="TZ" Target="TZ" Default="Europe/Dublin" Description="Time zone." Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Dublin</Config>
   <Config Name="Public URL" Target="PUBLIC_URL" Default="" Description="Optional. The address you open the list at (e.g. behind a reverse proxy or Tailscale)." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
 </Container>

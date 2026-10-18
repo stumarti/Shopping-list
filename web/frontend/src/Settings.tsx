@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { api, type Aisle, type FinderStatus } from "./api";
+import { api, type Aisle, type FinderStatus, type NutritionStatus } from "./api";
 
 type Props = {
   categories: string[];
@@ -17,6 +17,8 @@ export default function Settings({ categories, run }: Props) {
     <>
       <ClubcardUpload run={run} onDone={bump} />
       <BarcodeFinder itemsChanged={itemsChanged} />
+      <NutritionFiller itemsChanged={itemsChanged} />
+      <ConnectClaude />
       <Aisles run={run} />
       <AddCommon categories={categories} run={run} onDone={bump} />
       <StartAgain run={run} onDone={bump} />
@@ -386,6 +388,133 @@ function StartAgain({ run, onDone }: { run: Props["run"]; onDone: () => void }) 
           {note}
         </p>
       )}
+    </section>
+  );
+}
+
+
+const FIGURE_NAMES: Record<string, string> = { kcal: "calories", protein: "protein", carbs: "carbs", fat: "fat" };
+
+/** Fill calories and macros for every item with a barcode, from Open Food Facts, in the background. */
+function NutritionFiller({ itemsChanged }: { itemsChanged: number }) {
+  const [s, setS] = useState<NutritionStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const poll = async (call: Promise<NutritionStatus> = api.nutritionStatus()) => {
+    clearTimeout(timer.current);
+    try {
+      const next = await call;
+      setS(next);
+      setError(null);
+      if (next.running) timer.current = setTimeout(() => void poll(), 1500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong.");
+    }
+  };
+  useEffect(() => {
+    void poll();
+    return () => clearTimeout(timer.current);
+  }, [itemsChanged]);
+
+  return (
+    <section aria-labelledby="nutrition-heading">
+      <h2 id="nutrition-heading">Fill calories and macros</h2>
+      <p className="muted">
+        For items with a barcode, looks it up in Open Food Facts and fills calories, protein, carbs and fat for the whole pack (from the per
+        100 g figures and the pack size). Only empty ones are filled: anything you've typed stays.
+      </p>
+      {error && <p className="error-text">{error}</p>}
+      {s?.running ? (
+        <>
+          <progress max={s.total} value={s.done} aria-label="Nutrition lookup progress" />
+          <p className="muted" role="status">
+            {s.done} of {s.total} looked up, {s.filled.length} filled{s.current && `. Now: ${s.current}`}.
+          </p>
+          <button className="link" onClick={() => poll(api.stopFillingNutrition())}>
+            Stop
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="row">
+            <button className="primary" disabled={!s || s.waiting === 0} onClick={() => poll(api.fillAllNutrition(false))}>
+              {s && s.waiting ? `Fill ${s.waiting} ${s.waiting === 1 ? "item" : "items"}` : "Nothing new to fill"}
+            </button>
+            <button className="link" onClick={() => poll(api.fillAllNutrition(true))}>
+              Try again for ones with gaps
+            </button>
+          </div>
+          {s?.error && <p className="error-text">{s.error}</p>}
+          {s && s.total > 0 && !s.error && (
+            <p className="muted" role="status">
+              Last run: looked up {s.done} of {s.total}, filled {s.filled.length}.
+            </p>
+          )}
+        </>
+      )}
+      {!!s?.filled.length && (
+        <ul className="found-list">
+          {s.filled.map((f) => (
+            <li key={f.catalog_id}>
+              <span>
+                {f.name}
+                <span className="muted">
+                  {" "}
+                  · {f.filled.map((x) => FIGURE_NAMES[x]).join(", ")}
+                  {f.kcal !== undefined && ` · ${f.kcal} kcal`} · {f.basis}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+
+/** How to connect Claude to the MCP server at /mcp. */
+function ConnectClaude() {
+  const [info, setInfo] = useState<{ path: string; token_required: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    api.mcpInfo().then(setInfo, () => setInfo(null));
+  }, []);
+  if (!info) return null;
+  const url = location.origin + info.path;
+  const command = `claude mcp add --transport http shopping-list ${url}${info.token_required ? ' --header "Authorization: Bearer <your MCP_TOKEN>"' : ""}`;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // No clipboard on plain http: the command is there to select.
+    }
+  };
+  return (
+    <section aria-labelledby="mcp-heading">
+      <h2 id="mcp-heading">Connect Claude</h2>
+      <p className="muted">
+        Claude can use this list through its MCP server: ask what's on the next shop, add things, look up prices and spending, or fill an
+        online basket and record what went in (it then shows under Check the basket on Shop online).
+      </p>
+      <p>
+        Address: <code>{url}</code>{" "}
+        <span className="muted">· {info.token_required ? "needs your MCP_TOKEN" : "no token set: anyone who can reach the app can use it"}</span>
+      </p>
+      <p className="muted">Claude Code, on a computer on your network:</p>
+      <div className="add-form">
+        <code className="command">{command}</code>
+        <button className="link" onClick={copy}>
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <p className="muted hint">
+        claude.ai and the Claude apps connect from Anthropic's side, so they need the app on public https: set MCP_TOKEN first, then add a
+        custom connector with <code>{"https://<your address>/mcp?token=<token>"}</code>.
+      </p>
     </section>
   );
 }

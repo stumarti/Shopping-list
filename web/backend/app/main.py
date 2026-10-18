@@ -1,3 +1,4 @@
+import contextlib
 import datetime
 import json
 import os
@@ -11,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import clubcard, results
+from . import clubcard, mcp_server, nutrition, results
 from .catalog import FOOD_GROUP_IDS, FOOD_GROUPS, guess_aisle, guess_food_group
 from .db import Database, category_order
 from .finder import BarcodeFinder
@@ -124,6 +125,10 @@ class FindBarcodes(BaseModel):
     retry: bool = False  # also try items that found nothing last time
 
 
+class FillNutrition(BaseModel):
+    overwrite: bool = False  # replace figures you've typed too (only for one item, when you ask)
+
+
 class NewListItem(NewCatalogItem):
     category: str | None = None  # left out: the common item's aisle, or Other
     qty: int = Field(default=1, ge=1, le=99)
@@ -150,9 +155,12 @@ def create_app(
     fetch: Fetch = http_fetch,
     today=datetime.date.today,
     search_gap: float = 6.5,
+    nutrition_gap: float = 1.0,
+    mcp_token: str | None = None,
 ) -> FastAPI:
     db = Database(db_path or os.environ.get("DB_PATH", "shopping.db"))
     finder = BarcodeFinder(db, fetch, search_gap)
+    filler = nutrition.NutritionFiller(db, fetch, nutrition_gap)
 
     def aisle(category: str | None) -> str:
         return db.aisle(category)
@@ -448,6 +456,37 @@ def create_app(
     def stop_finding():
         return finder.stop()
 
+    # Calories and macros from Open Food Facts, by barcode
+
+    @app.post("/api/catalog/{item_id}/nutrition")
+    def fill_nutrition(item_id: int, body: FillNutrition):
+        """Look this item's barcode up in Open Food Facts and fill its calories and macros per pack. Only empty
+        figures are filled, unless overwrite."""
+        item = catalog_item(item_id)
+        if not item["barcode"]:
+            raise HTTPException(422, "Add or scan its barcode first")
+        try:
+            found = nutrition.look_up(item["barcode"], fetch)
+        except OSError:
+            raise HTTPException(502, "Couldn't reach Open Food Facts. Try again in a minute.")
+        with db.tx() as conn:
+            filled = nutrition.fill(conn, item_id, found or {}, overwrite=body.overwrite)
+        return {"item": catalog_item(item_id), "found": found is not None, "filled": filled,
+                "basis": found["basis"] if found else None}
+
+    @app.post("/api/nutrition/fill")
+    def start_filling(body: FindBarcodes):
+        """Fill calories and macros for every item with a barcode, in the background."""
+        return filler.start(retry=body.retry)
+
+    @app.get("/api/nutrition/fill")
+    def filling_status():
+        return filler.status()
+
+    @app.post("/api/nutrition/fill/stop")
+    def stop_filling():
+        return filler.stop()
+
     # Common items
 
     @app.get("/api/catalog")
@@ -510,6 +549,7 @@ def create_app(
             # Your own barcode (or clearing one) is final: the barcode finder leaves this item alone after.
             changes["barcode_source"] = "you" if changes["barcode"] else ""
             changes["barcode_checked_at"] = datetime.datetime.now().isoformat(timespec="seconds")
+            changes["nutrition_checked_at"] = ""  # a new barcode is worth looking up for calories again
         if changes:
             with db.tx() as conn:
                 if "name" in changes and conn.execute(
@@ -534,6 +574,7 @@ def create_app(
         with db.tx() as conn:
             removed = conn.execute("DELETE FROM catalog").rowcount
         finder.stop()
+        filler.stop()
         return {"removed": removed}
 
     @app.post("/api/catalog/rebuild")
@@ -1287,6 +1328,23 @@ def create_app(
         with db.tx() as conn:
             removed = conn.execute("DELETE FROM list_items WHERE done = 1").rowcount
         return {"removed": removed}
+
+    # The MCP server, for Claude: the same API as tools, at /mcp (see mcp_server.py).
+    mcp_secret = mcp_token if mcp_token is not None else os.environ.get("MCP_TOKEN", "")
+    mcp_route, mcp_running = mcp_server.build(app, token=mcp_secret)
+    app.router.routes.append(mcp_route)
+
+    @app.get("/api/mcp")
+    def mcp_info():
+        """For Settings: where the MCP server is, and whether it needs MCP_TOKEN (never the token itself)."""
+        return {"path": "/mcp", "token_required": bool(mcp_secret)}
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_):
+        async with mcp_running():
+            yield
+
+    app.router.lifespan_context = lifespan
 
     # The built React app. Any path that isn't an API call or a real file gets index.html.
     static = Path(static_dir or os.environ.get("STATIC_DIR", Path(__file__).parent.parent / "static"))

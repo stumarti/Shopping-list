@@ -191,6 +191,11 @@ MIGRATIONS = [
         kept INTEGER NOT NULL DEFAULT 0
     );
     """,
+    # 12: when calories and macros were last looked up in Open Food Facts by barcode ('' for never), so filling
+    #     every item doesn't ask again about ones it found nothing for
+    """
+    ALTER TABLE catalog ADD COLUMN nutrition_checked_at TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 FALLBACK_AISLE = "Other"

@@ -908,3 +908,42 @@ def test_basket_check_and_forgotten(tmp_path):
     assert bad.status_code == 422 and "Couldn't find" in bad.json()["detail"]
     assert c.delete("/api/basket/tesco/check").status_code == 204
     assert c.get("/api/basket/tesco/check").json() is None
+
+
+def test_nutrition_from_open_food_facts(tmp_path):
+    fetch = fake_open_facts({
+        "openfoodfacts:5000000000001": {"product_name": "Wholemeal Pan", "quantity": "800 g",
+                                        "nutriments": {"energy-kcal_100g": 240, "proteins_100g": 9, "carbohydrates_100g": 45, "fat_100g": 2}},
+        "openfoodfacts:5000000000002": {"product_name": "Milk", "product_quantity": 2000, "product_quantity_unit": "ml",
+                                        "nutriments": {"energy-kcal_100g": 64, "proteins_100g": 3.4}},
+    })
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none"), fetch=fetch, nutrition_gap=0))
+    c.post("/api/catalog/bulk", json={"text": "Wholemeal pan\nWhole milk\nMystery jar\nNo barcode", "category": "Other"})
+    ids = {i["name"]: i["id"] for i in c.get("/api/catalog").json()}
+    c.patch(f"/api/catalog/{ids['Wholemeal pan']}", json={"barcode": "5000000000001"})
+    c.patch(f"/api/catalog/{ids['Whole milk']}", json={"barcode": "5000000000002", "protein": 70})
+    c.patch(f"/api/catalog/{ids['Mystery jar']}", json={"barcode": "5000000000009"})
+
+    # One item
+    r = c.post(f"/api/catalog/{ids['Wholemeal pan']}/nutrition", json={}).json()
+    assert r["found"] and r["filled"] == ["kcal", "protein", "carbs", "fat"] and r["basis"] == "per 100 g × 800 g"
+    assert (r["item"]["kcal"], r["item"]["protein"], r["item"]["carbs"], r["item"]["fat"]) == (1920, 72, 360, 16)
+    no_code = c.post(f"/api/catalog/{ids['No barcode']}/nutrition", json={})
+    assert no_code.status_code == 422 and "barcode" in no_code.json()["detail"]
+
+    # Everything else with a barcode, in the background; what you typed stays
+    c.post("/api/nutrition/fill", json={})
+    import time
+    for _ in range(50):
+        status = c.get("/api/nutrition/fill").json()
+        if not status["running"]:
+            break
+        time.sleep(0.05)
+    assert status["total"] == 2 and status["done"] == 2
+    assert [(f["name"], f["filled"]) for f in status["filled"]] == [("Whole milk", ["kcal"])]
+    milk = {i["name"]: i for i in c.get("/api/catalog").json()}["Whole milk"]
+    assert milk["kcal"] == 1280 and milk["protein"] == 70  # your 70 g, not Open Food Facts' 68
+    # Nothing left to do until a barcode changes
+    assert c.get("/api/nutrition/fill").json()["waiting"] == 0
+    c.patch(f"/api/catalog/{ids['Mystery jar']}", json={"barcode": "5000000000003"})
+    assert c.get("/api/nutrition/fill").json()["waiting"] == 1

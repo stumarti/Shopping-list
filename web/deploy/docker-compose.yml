@@ -15,6 +15,9 @@ services:
       # The address you open the list at, if it's different from what the browser sends
       # (for example behind a reverse proxy). Used for the browser helper's update link.
       - PUBLIC_URL=${PUBLIC_URL:-}
+      # Optional: a password for the MCP server at /mcp (for Claude). Set it before the app is reachable
+      # from outside your home network.
+      - MCP_TOKEN=${MCP_TOKEN:-}
       # Only set these if Tesco or Dunnes change their search pages: {q} is the search term.
       - TESCO_SEARCH_URL=${TESCO_SEARCH_URL:-}
       - DUNNES_SEARCH_URL=${DUNNES_SEARCH_URL:-}

@@ -58,6 +58,7 @@ docker compose logs -f        # Ctrl+C to stop watching
 | `PUID` / `PGID` | `99` / `100` | Owner of `DATA_DIR` (Unraid's nobody:users) |
 | `TZ` | `Europe/Dublin` | Time zone |
 | `PUBLIC_URL` | (empty) | The address you open the list at, if a reverse proxy or Tailscale changes it. The browser helper uses it to update itself |
+| `MCP_TOKEN` | (empty) | A password for the MCP server at `/mcp` (for Claude). Set one before the app is reachable from outside your home network |
 | `TESCO_SEARCH_URL`, `DUNNES_SEARCH_URL` | (empty) | Only if a store changes its search page. `{q}` is the search term |
 
 ## If the image won't download
