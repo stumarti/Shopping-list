@@ -223,6 +223,13 @@ export const api = {
   history: () => call<History>("/history"),
   itemHistory: (catalogId: number) => call<ItemHistory>(`/history/items/${catalogId}`),
   /** Tesco's Clubcard data export, sent exactly as downloaded (.json or .zip). */
+  /** A shop you did yourself, so the history and the next shop move on. */
+  recordShop: (store: string, date: string, items: { name: string; qty: number; price: number | null }[]) =>
+    call<{ order_ref: string; store: string; bought_on: string; products: number; new_common_items: number; cleared_from_list: number }>(
+      "/history/manual",
+      json("POST", { store, date, items }),
+    ),
+  forgetRecordedShop: (orderRef: string) => call<void>(`/history/manual/${encodeURIComponent(orderRef)}`, { method: "DELETE" }),
   importClubcard: (file: File) =>
     call<ClubcardResult>("/history/tesco/clubcard", { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" } }),
   barcode: (code: string) => call<Product>(`/barcode/${encodeURIComponent(code)}`),

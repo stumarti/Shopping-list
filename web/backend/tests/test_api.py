@@ -947,3 +947,44 @@ def test_nutrition_from_open_food_facts(tmp_path):
     assert c.get("/api/nutrition/fill").json()["waiting"] == 0
     c.patch(f"/api/catalog/{ids['Mystery jar']}", json={"barcode": "5000000000003"})
     assert c.get("/api/nutrition/fill").json()["waiting"] == 1
+
+
+def test_record_a_shop_by_hand(tmp_path):
+    import datetime as dt
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), static_dir=str(tmp_path / "none"),
+                              today=lambda: dt.date(2026, 10, 18)))
+    upload(c, {"purchases": [trip(f"2026-{d} 11:00:00", [("Tesco Whole Milk 2L", 1, 2.19)]) for d in ("09-19", "09-26", "10-03", "10-10")]})
+    # Last shop the 10th: the 17th has gone by unrecorded, so it says today
+    assert c.get("/api/next-shop").json()["shop"]["date"] == "2026-10-18"
+    c.post("/api/list", json={"name": "Birthday candles", "category": "Other"})
+    c.post("/api/list", json={"name": "Batteries", "category": "Household"})
+
+    r = c.post("/api/history/manual", json={"store": "Lidl", "date": "2026-10-17", "items": [
+        {"name": "Tesco Whole Milk 2L", "qty": 1, "price": 1.99},
+        {"name": "Birthday candles"},
+        {"name": "birthday candles"},  # twice: one line, both counted
+    ]})
+    assert r.status_code == 201
+    shop = r.json()
+    assert shop["products"] == 2 and shop["new_common_items"] == 0 and shop["cleared_from_list"] == 1  # candles were added, so known
+    # It's in the history, the forecast has moved on, and what was bought is off the list
+    orders = c.get("/api/history").json()["orders"]
+    assert orders[0]["store"] == "Lidl" and orders[0]["bought_on"] == "2026-10-17" and orders[0]["source"] == "manual"
+    assert orders[0]["units"] == 3
+    assert [i["name"] for i in c.get("/api/list").json()] == ["Batteries"]
+    milk = next(i for i in c.get("/api/catalog").json() if i["name"] == "Tesco Whole Milk 2L")
+    assert c.get(f"/api/history/items/{milk['id']}").json()["purchases"][-1]["unit_price"] == 1.99
+    plan = c.get("/api/next-shop").json()["shop"]
+    assert plan["last_shop"] == "2026-10-17" and plan["date"] == "2026-10-24"  # recorded, so it moves on a week
+    # Tesco by name is the same store as the imports
+    t = c.post("/api/history/manual", json={"store": "tesco", "date": "2026-10-18", "items": [{"name": "Milk"}]}).json()
+    assert c.get("/api/history").json()["orders"][0]["store"] == "tesco"
+
+    # Not in the future, and a date it can read
+    assert c.post("/api/history/manual", json={"store": "Lidl", "date": "2026-10-19", "items": [{"name": "Eggs"}]}).status_code == 422
+    assert c.post("/api/history/manual", json={"store": "Lidl", "date": "Saturday", "items": [{"name": "Eggs"}]}).status_code == 422
+    # Take one back; imported shops can't be removed this way
+    assert c.delete(f"/api/history/manual/{t['order_ref']}").status_code == 204
+    assert c.delete(f"/api/history/manual/{t['order_ref']}").status_code == 404
+    imported = next(o for o in c.get("/api/history").json()["orders"] if o["source"] != "manual")
+    assert c.delete(f"/api/history/manual/{imported['order_ref']}").status_code == 404

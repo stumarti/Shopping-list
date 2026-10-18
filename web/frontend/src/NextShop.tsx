@@ -4,6 +4,7 @@ import Icon from "./Icon";
 import { byTrips, OrderToggle, useOrder } from "./Order";
 
 const Scanner = lazy(() => import("./Scanner"));
+const RecordShop = lazy(() => import("./RecordShop"));
 
 /** What a scan found: an item on this shop (ticked), or something to add. */
 type Scanned = { code: string; message: string; add?: { name: string; category: string } };
@@ -107,6 +108,8 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState<Scanned | null>(null);
   const [scanName, setScanName] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [recorded, setRecorded] = useState<{ order_ref: string; store: string; bought_on: string; products: number } | null>(null);
   const [got, toggleGot, emptyTrolley] = useTrolley(plan?.shop?.date ?? "anytime");
   useEffect(() => {
     api.foodGroups().then(setFoodGroups, () => setFoodGroups([]));
@@ -420,6 +423,48 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
           {scanning && (
             <Suspense fallback={null}>
               <Scanner title="Scan a barcode" onCode={(c) => void onScanned(c)} onClose={() => setScanning(false)} />
+            </Suspense>
+          )}
+
+          {recorded && (
+            <p className="undo" role="status">
+              <Icon name="checked" size={16} /> Recorded {recorded.products} {recorded.products === 1 ? "thing" : "things"} from {recorded.store} on{" "}
+              {day(recorded.bought_on).toLocaleDateString("en-IE", { weekday: "short", day: "numeric", month: "short" })}. The next shop has moved on.{" "}
+              <button
+                className="link"
+                onClick={() =>
+                  run(async () => {
+                    await api.forgetRecordedShop(recorded.order_ref);
+                    setRecorded(null);
+                    await load();
+                  })
+                }
+              >
+                Undo
+              </button>
+            </p>
+          )}
+
+          <div className="record-cta">
+            <button className={inTrolley.length || gotCount ? "primary" : "link"} onClick={() => setRecording(true)}>
+              <Icon name="checked" size={18} /> {gotCount ? "Done shopping: record this shop" : "Record a shop"}
+            </button>
+            <span className="muted">Shopped somewhere with no data to upload? Record it so the next shop moves on.</span>
+          </div>
+          {recording && (
+            <Suspense fallback={null}>
+              <RecordShop
+                items={plan.items}
+                inTrolley={(i) => got.has(key(i))}
+                run={run}
+                onClose={() => setRecording(false)}
+                onRecorded={(r) => {
+                  setRecording(false);
+                  setRecorded(r);
+                  emptyTrolley();
+                  void load();
+                }}
+              />
             </Suspense>
           )}
 

@@ -10,6 +10,8 @@ A shared shopping list in one Docker container: a React page served by a FastAPI
 - **Your typical shop** (beside the next shop): products and spend per shop in each aisle, averaged over your trips in the last year.
 - **Light or dark**: the switch at the top right goes Auto (follows the device), Light, Dark.
 - **On your phone in the shop**: the pages move to a bar along the bottom, and the aisle chips above the list stay at the top as you scroll (each shows how much is left in that aisle). Tap the circle beside an item when it's in the trolley: it drops to **In the trolley** at the bottom, and a bar shows how far through you are. Ticks are kept on that phone for this shop's date, and start fresh for the next shop.
+- **Record a shop**: shopped somewhere with nothing to upload (Lidl, the corner shop, Tesco without your Clubcard)? On Next shop, **Done shopping: record this shop** (or **Record a shop**) starts from the next shop with what's in the trolley ticked: pick where and when, untick what you didn't get, add anything else, and prices if you like. It goes into the history, so the next shop moves on, and what you bought comes off the list. **Undo** takes it back.
+- **Type calories and macros quickly**: Common items → **Calories & macros** is a table of your food, most bought first, with a box for calories, protein, carbs and fat on each row (each saves as you leave it; **Only ones with gaps** to see what's left). **Per 100 g** lets you type straight off the label: give the pack size (read from the name when it says, like "800g") and it works out the pack.
 - **Calories and macros from barcodes**: on an item with a barcode, **Fill from Open Food Facts** works out calories, protein, carbs and fat for the whole pack (Open Food Facts' per 100 g figures × the pack size), and Settings → **Fill calories and macros** does every item with a barcode in the background. Only empty figures are filled; what you've typed stays. Scanning a barcode onto an item with no figures fills them straight away.
 - **Scan barcodes** with your phone's camera: the scan button beside **Add something else** on Next shop ticks an item into the trolley if it's on this shop, or offers to add it (looked up in your items, then Open Food Facts, and remembered with its barcode). The scan button by an item's barcode on Common items sets it. Live scanning needs the page on **https** (phones only allow the camera there); on plain http, **Take a photo** of the barcode works just as well. To get https on Unraid, put it behind a reverse proxy (Nginx Proxy Manager, SWAG) or use Tailscale's `tailscale serve`. Barcodes are read by the browser's own reader where there is one, otherwise by [ZXing](https://github.com/zxing-js/browser), bundled and only loaded when you scan.
 - **Icons** are [Material Symbols](https://fonts.google.com/icons) (rounded), bundled in the page so it works without the internet.
@@ -163,6 +165,7 @@ The app is also an [MCP](https://modelcontextprotocol.io) server at `/mcp`, so C
 | `next_shop` | The next shop's date, what's on it and why, the maybes, what was taken off |
 | `add_to_list`, `take_off_next_shop`, `put_back_on_next_shop`, `pick_option` | Change the next shop |
 | `before_you_order` | What might be missing: unpicked sets, maybes, regulars not on it, things due soon |
+| `record_shop` | Record a shop that's been done, so the next shop moves on |
 | `find_items`, `item_history`, `spending` | Common items, an item's history and prices, what you've spent |
 | `basket_list` | The next shop for Tesco or Dunnes, with saved product links and Never swap |
 | `record_basket_results`, `last_basket_check` | Record how filling the basket went / read it back |
@@ -214,6 +217,8 @@ web/
     Theme.tsx          the light / dark switch
     Icon.tsx           Material Symbols icons, bundled from @material-symbols/svg-400
     Scanner.tsx        the barcode scanner: live camera, a photo, or the number typed in
+    RecordShop.tsx     recording a shop by hand
+    NutritionTable.tsx calories and macros for many items at once, per pack or per 100 g
     History.tsx        Past shopping: uploads, what you buy, how often, prices
     Manage.tsx         the Common items tab: items (most bought first or by aisle), kinds, sets, each item's history
     Order.tsx          the Most bought / By aisle switch
@@ -256,6 +261,8 @@ web/
 | GET | `/api/typical-shop` | A typical shop over the last year: products, spend and calories per shop, aisle by aisle, and calories a week over weeks you shopped |
 | GET | `/api/spending` | Total spend, a shop, a week, month by month, and price changes of things you buy again and again |
 | GET | `/api/food-groups` | The food pyramid's shelves, bottom first |
+| POST | `/api/history/manual` | Record a shop by hand `{store, date, items: [{name, qty, price}]}`; bought things come off the list |
+| DELETE | `/api/history/manual/{order_ref}` | Take back a shop recorded by hand |
 | GET | `/api/history` | Imported trips, newest first, and the items bought most often: trips, about how often, usual quantity, prices |
 | GET | `/api/history/items/{id}` | Every purchase of one common item: when, quantity, price each, where |
 | GET | `/api/aisles` | Aisles in order, with how many items each has |

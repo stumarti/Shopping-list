@@ -2857,3 +2857,230 @@ code.command {
   font-size: 0.8rem;
   overflow-wrap: anywhere;
 }
+
+/* Record a shop */
+.record-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 16px;
+  font-size: 0.85rem;
+}
+
+.record-cta button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.record-shop {
+  width: min(520px, 100%);
+}
+
+.record-shop fieldset {
+  margin: 10px 0 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.record-shop legend,
+.record-when span {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.record-shop .aisle-chips {
+  margin: 4px 0 6px;
+  flex-wrap: wrap;
+  overflow: visible;
+  position: static;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.record-shop input,
+.record-shop select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+
+.record-where > input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.record-when {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.record-items {
+  margin-top: 12px;
+}
+
+.record-head,
+.record-items li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px 72px;
+  gap: 8px;
+  align-items: center;
+}
+
+.record-head {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding-bottom: 4px;
+}
+
+.record-items ul {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.record-items li {
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+}
+
+.record-items li.off .record-name span {
+  color: var(--muted);
+}
+
+.record-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.record-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-name input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.record-save {
+  width: 100%;
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* Calories and macros, many at once */
+.common-head-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 14px;
+}
+
+.macros-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+.nutrition-table {
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+}
+
+.nutrition-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 10px 0 6px;
+}
+
+.nutrition-controls .filter {
+  flex: 1 1 12rem;
+  margin: 0;
+}
+
+.nutrition-controls .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.nutrition-scroll {
+  overflow-x: auto;
+  margin: 6px -4px 0;
+}
+
+.nutrition-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.nutrition-scroll th,
+.nutrition-scroll td {
+  padding: 5px 4px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.nutrition-scroll thead th {
+  border-top: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.nutrition-scroll tbody th {
+  font-weight: 500;
+  min-width: 9rem;
+  max-width: 16rem;
+}
+
+.nutrition-name {
+  overflow-wrap: anywhere;
+}
+
+.nutrition-scroll input {
+  width: 64px;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nutrition-scroll input:disabled {
+  opacity: 0.5;
+}
+
+.nutrition-scroll input.size {
+  width: 60px;
+}

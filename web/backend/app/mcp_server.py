@@ -49,6 +49,12 @@ class BasketResult(BaseModel):
     note: str = Field(default="", description="Why it was swapped or is missing")
 
 
+class RecordedLine(BaseModel):
+    name: str = Field(description="What was bought, ideally a common item's name")
+    qty: int = Field(default=1, description="How many")
+    price: float | None = Field(default=None, description="Price each in euro, if known")
+
+
 def _named(items: list[dict], name: str) -> dict | None:
     key = name.strip().lower()
     return next((i for i in items if i["name"].lower() == key), None) or next(
@@ -230,6 +236,13 @@ def build(app, token: str | None = None) -> tuple[Route, Callable[[], contextlib
             "not_mentioned": check["unreported"],
             "total": check["total"],
         }
+
+    @server.tool(annotations=WRITE)
+    async def record_shop(store: str, date: str, items: list[RecordedLine]) -> dict:
+        """Record a shop that's been done (in a store or delivered), so the history and the next shop move on:
+        where (e.g. "Tesco", "Dunnes", "Lidl"), when (YYYY-MM-DD, not in the future) and what was bought.
+        Bought things also come off the list."""
+        return await api("POST", "/history/manual", json={"store": store, "date": date, "items": [i.model_dump() for i in items]})
 
     @server.tool(annotations=READ)
     async def last_basket_check(store: str = "tesco") -> dict | None:

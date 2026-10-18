@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 import urllib.parse
+import uuid
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -99,6 +100,21 @@ class PastOrder(BaseModel):
     order_ref: str = Field(min_length=1, max_length=120)
     date: str = ""
     items: list[OrderLine] = Field(min_length=1, max_length=400)
+
+
+class ShopLine(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    qty: int = Field(default=1, ge=1, le=99)
+    price: float | None = Field(default=None, ge=0, le=1000)  # each, if you know it
+
+    _name = field_validator("name")(tidy_name)
+
+
+class ManualShop(BaseModel):
+    """A shop you did yourself: anywhere (Tesco, Dunnes, Lidl, the corner shop), so the forecast knows."""
+    store: str = Field(min_length=1, max_length=40)
+    date: str
+    items: list[ShopLine] = Field(min_length=1, max_length=300)
 
 
 class AisleName(BaseModel):
@@ -882,6 +898,60 @@ def create_app(
             "skipped": skipped,
             "already_imported": added == 0 and skipped < len(body.items),
         }
+
+    @app.post("/api/history/manual", status_code=201)
+    def record_shop(body: ManualShop):
+        """Record a shop by hand: what you bought, where and when. Each thing joins the purchase history (as
+        one of your common items, added if it's new), so the next shop and the forecast move on; and it comes
+        off the list, since it's bought."""
+        try:
+            bought_on = datetime.date.fromisoformat(body.date)
+        except ValueError:
+            raise HTTPException(422, "The date should look like 2026-10-17")
+        if bought_on > today():
+            raise HTTPException(422, "That date is still to come. Record a shop once it's done.")
+        store = " ".join(body.store.split())
+        store_key = store.lower() if store.lower() in STORES else store
+        order_ref = f"manual-{bought_on.isoformat()}-{uuid.uuid4().hex[:8]}"
+        # The same thing twice on one shop is one line with both counted.
+        lines: dict[str, ShopLine] = {}
+        for line in body.items:
+            key = line.name.lower()
+            if key in lines:
+                lines[key] = ShopLine(name=lines[key].name, qty=min(99, lines[key].qty + line.qty), price=lines[key].price or line.price)
+            else:
+                lines[key] = line
+        new_items = 0
+        with db.tx() as conn:
+            for line in lines.values():
+                known = conn.execute("SELECT id FROM catalog WHERE lower(name) = lower(?)", (line.name,)).fetchone()
+                if known:
+                    catalog_id = known["id"]
+                else:
+                    catalog_id = conn.execute(
+                        "INSERT INTO catalog (name, category, custom) VALUES (?, ?, 1)", (line.name, guess(line.name))
+                    ).lastrowid
+                    new_items += 1
+                conn.execute(
+                    "INSERT INTO purchases (store, order_ref, bought_on, bought_at, catalog_id, name, qty, url, unit_price, source) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, 'manual')",
+                    (store_key, order_ref, bought_on.isoformat(), bought_on.isoformat(), catalog_id, line.name, line.qty,
+                     None if line.price is None else round(line.price, 2)),
+                )
+            cleared = 0
+            for line in lines.values():
+                cleared += conn.execute(
+                    "DELETE FROM list_items WHERE done = 0 AND lower(name) = lower(?)", (line.name,)).rowcount
+        return {"order_ref": order_ref, "store": store, "bought_on": bought_on.isoformat(), "products": len(lines),
+                "new_common_items": new_items, "cleared_from_list": cleared}
+
+    @app.delete("/api/history/manual/{order_ref}", status_code=204)
+    def forget_recorded_shop(order_ref: str):
+        """Take back a shop you recorded by hand (only those: imported ones stay as they came)."""
+        with db.tx() as conn:
+            gone = conn.execute("DELETE FROM purchases WHERE order_ref = ? AND source = 'manual'", (order_ref,)).rowcount
+        if not gone:
+            raise HTTPException(404, "There's no shop recorded by hand with that reference")
 
     @app.post("/api/history/tesco/clubcard")
     async def import_clubcard(request: Request):
