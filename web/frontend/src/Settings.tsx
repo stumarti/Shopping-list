@@ -42,7 +42,7 @@ function ClubcardUpload({ run, onDone }: { run: Props["run"]; onDone: () => void
         r.new_trips
           ? `Added ${r.new_trips} shopping trips from ${fmt(r.from)} to ${fmt(r.to)}` +
               (r.already_imported ? ` (${r.already_imported} were already here)` : "") +
-              `, and ${r.new_common_items} new common items.` +
+              `, and ${r.new_common_items} new items.` +
               (r.not_groceries
                 ? ` ${r.not_groceries} non-grocery ${r.not_groceries === 1 ? "line" : "lines"} (clothes, bags) kept but left out of the figures.`
                 : "") +
@@ -111,7 +111,7 @@ function BarcodeFinder({ itemsChanged }: { itemsChanged: number }) {
     <section aria-labelledby="barcodes-heading">
       <h2 id="barcodes-heading">Find barcodes</h2>
       <p className="muted">
-        Looks your common items up in Open Food Facts by name, and gives each one a barcode when the product found clearly matches. Open Food
+        Looks your items up in Open Food Facts by name, and gives each one a barcode when the product found clearly matches. Open Food
         Facts allows about 10 searches a minute, so it works through them in the background: you can leave this page.
       </p>
       {error && <p className="error-text">{error}</p>}
@@ -209,7 +209,7 @@ function Aisles({ run }: { run: Props["run"] }) {
   return (
     <section aria-labelledby="aisles-heading">
       <h2 id="aisles-heading">Aisles</h2>
-      <p className="muted">In the order you walk round the shop. Your list and common items follow this order.</p>
+      <p className="muted">In the order you walk round the shop. Your list and items follow this order.</p>
       <ol className="aisle-list">
         {aisles.map((a, i) => (
           <li key={a.id}>
@@ -321,7 +321,7 @@ function AddCommon({ categories, run, onDone }: Props & { onDone: () => void }) 
 
   return (
     <section aria-labelledby="bulk-heading">
-      <h2 id="bulk-heading">Add common items</h2>
+      <h2 id="bulk-heading">Add items</h2>
       <p className="muted">One item per line. They all go in the aisle you pick.</p>
       <form onSubmit={addMany} className="bulk">
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder={"Kombucha\nOat milk"} aria-label="Items, one per line" />
@@ -349,10 +349,10 @@ function StartAgain({ run, onDone }: { run: Props["run"]; onDone: () => void }) 
   const [note, setNote] = useState<string | null>(null);
 
   const clear = () => {
-    if (!confirm("Remove all common items? Your list, purchase history and uploaded files stay.")) return;
+    if (!confirm("Remove all items? Your list, purchase history and uploaded files stay.")) return;
     void run(async () => {
       const r = await api.clearCommon();
-      setNote(`Removed ${r.removed} common items.`);
+      setNote(`Removed ${r.removed} items.`);
       onDone();
     });
   };
@@ -362,7 +362,7 @@ function StartAgain({ run, onDone }: { run: Props["run"]; onDone: () => void }) 
       const r = await api.rebuildCommon();
       setNote(
         r.added || r.purchases
-          ? `Made ${r.added} common items from ${r.purchases} past purchases.`
+          ? `Made ${r.added} items from ${r.purchases} past purchases.`
           : "Nothing to rebuild: every past purchase already belongs to a common item.",
       );
       onDone();
@@ -372,12 +372,12 @@ function StartAgain({ run, onDone }: { run: Props["run"]; onDone: () => void }) 
     <section aria-labelledby="start-heading">
       <h2 id="start-heading">Start again</h2>
       <p className="muted">
-        Clear out the common items and make them again from your shopping history: every product from an online order, and anything
+        Clear out the items and make them again from your shopping history: every product from an online order, and anything
         you've bought on two or more trips. Your list, history and uploaded files are never touched.
       </p>
       <div className="row">
         <button className="link danger" onClick={clear}>
-          Remove all common items
+          Remove all items
         </button>
         <button className="primary" onClick={rebuild}>
           Rebuild from history

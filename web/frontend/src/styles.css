@@ -3084,3 +3084,117 @@ code.command {
 .nutrition-scroll input.size {
   width: 60px;
 }
+
+/* Purchased items: the list beside the open item on a wide screen */
+.items-layout {
+  display: grid;
+  gap: 0 24px;
+}
+
+.items-list,
+.items-panel {
+  min-width: 0;
+}
+
+@media (min-width: 880px) {
+  .items-layout {
+    grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
+    align-items: start;
+  }
+
+  /* The list scrolls in its own box, so the page stays one screen tall. */
+  .items-layout .items-list {
+    position: sticky;
+    top: 8px;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+  }
+
+  .items-layout .items-panel {
+    position: sticky;
+    top: 8px;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+  }
+
+  .items-layout .common-list li.open {
+    background: var(--accent-soft);
+    border-radius: 8px;
+  }
+
+  .items-layout .common-list li.open .common-name {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
+.common-name {
+  padding: 7px 0;
+}
+
+.detail-title {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.detail-title h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+
+.detail-title .muted {
+  font-size: 0.85rem;
+}
+
+/* History, Nutrition, Details */
+.detail-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 4px 0 10px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--ground);
+}
+
+.detail-tabs button {
+  flex: 1;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.detail-tabs button.on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+.edit-fields.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+.edit-fields.two > .kinds,
+.edit-fields.two > .check,
+.edit-fields.two > .small {
+  grid-column: 1 / -1;
+}
+
+.detail [role="tabpanel"] > .edit-fields:first-child,
+.detail [role="tabpanel"].edit-fields {
+  margin-top: 0;
+}
+
+@media (max-width: 480px) {
+  .edit-fields.two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

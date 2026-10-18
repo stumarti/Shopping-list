@@ -37,7 +37,7 @@ export default function History({ storeName, onList, listSize, run }: Props) {
         r.new_trips
           ? `Added ${r.new_trips} shopping trips from ${formatDate(r.from)} to ${formatDate(r.to)}` +
               (r.already_imported ? ` (${r.already_imported} were already here)` : "") +
-              `. ${r.new_common_items} new common items.` +
+              `. ${r.new_common_items} new items.` +
               (r.not_groceries
                 ? ` ${r.not_groceries} non-grocery ${r.not_groceries === 1 ? "line" : "lines"} (clothes, bags) kept but left out of the figures.`
                 : "")

@@ -17,7 +17,7 @@ type Tab = "list" | "common" | "shop" | "settings";
 const TABS: [Tab, string, IconName][] = [
   ["list", "Next shop", "cart"],
   ["shop", "Shop online", "store"],
-  ["common", "Common items", "list"],
+  ["common", "Purchased items", "list"],
 ];
 const tabFromHash = (): Tab =>
   location.hash === "#settings" ? "settings" : (TABS.find(([t]) => location.hash === `#${t}` && t !== "list")?.[0] ?? "list");
@@ -29,7 +29,7 @@ const SOURCE_NAMES: Record<string, string> = {
   openbeautyfacts: "Open Beauty Facts",
   openproductsfacts: "Open Products Facts",
   openpetfoodfacts: "Open Pet Food Facts",
-  yours: "your common items",
+  yours: "your items",
 };
 
 export default function App() {
@@ -156,7 +156,7 @@ export default function App() {
   };
 
   return (
-    <main className={tab === "list" || tab === "shop" ? "wide" : undefined}>
+    <main className={tab === "list" || tab === "shop" || tab === "common" ? "wide" : undefined}>
       <header>
         <div className="title-row">
           <h1>Shopping list</h1>
@@ -313,7 +313,7 @@ export default function App() {
             <p className="muted hint">
               Missing something you buy often?{" "}
               <a href="#common" onClick={(e) => (e.preventDefault(), go("common"))}>
-                Build your common items
+                Build your items
               </a>
               .
             </p>
