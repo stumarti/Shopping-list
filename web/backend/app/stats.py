@@ -150,36 +150,71 @@ def spending(rows: list[dict], today: datetime.date) -> dict | None:
     trips = {r["trip"] for r in priced}
     weeks = {monday(r["bought_on"]) for r in priced}
 
-    # Price change: products bought at least 90 days apart.
     by_product: dict[int, list[dict]] = {}
     for r in priced:
         if r["catalog_id"]:
             by_product.setdefault(r["catalog_id"], []).append(r)
+    day = lambda r: datetime.date.fromisoformat(r["bought_on"])
+
+    # Price change: products bought at least 90 days apart, first three months against last three; and what it
+    # adds (or saves) a month at the rate you buy it.
     changes = []
     for pid, rs in by_product.items():
-        days = sorted(datetime.date.fromisoformat(r["bought_on"]) for r in rs)
+        days = sorted(day(r) for r in rs)
         if (days[-1] - days[0]).days < 90:
             continue
-        early = [r["unit_price"] for r in rs if datetime.date.fromisoformat(r["bought_on"]) <= days[0] + datetime.timedelta(days=90)]
-        late = [r["unit_price"] for r in rs if datetime.date.fromisoformat(r["bought_on"]) >= days[-1] - datetime.timedelta(days=90)]
+        early = [r["unit_price"] for r in rs if day(r) <= days[0] + datetime.timedelta(days=90)]
+        late = [r["unit_price"] for r in rs if day(r) >= days[-1] - datetime.timedelta(days=90)]
         before, after = sum(early) / len(early), sum(late) / len(late)
         if before > 0:
+            months_bought = max(1.0, (days[-1] - days[0]).days / 30.44)
+            per_month = sum(r["qty"] for r in rs) / months_bought
             changes.append({"catalog_id": pid, "name": rs[0].get("name", ""), "before": round(before, 2),
                             "after": round(after, 2), "change": after / before - 1,
+                            "per_month": round(per_month, 1), "impact": round((after - before) * per_month, 2),
                             "weight": sum(r["unit_price"] * r["qty"] for r in rs)})
     price = None
     if changes:
         weight = sum(c["weight"] for c in changes)
         overall = sum(c["change"] * c["weight"] for c in changes) / weight
-        movers = sorted(changes, key=lambda c: -abs(c["change"]))
+        movers = sorted(changes, key=lambda c: (-abs(c["impact"]), -abs(c["change"])))
+        tidy = lambda c: {k: (round(v, 3) if k == "change" else v) for k, v in c.items() if k != "weight"}
         price = {
             "change": round(overall, 3),
             "products": len(changes),
-            "up": [dict(c, change=round(c["change"], 3)) for c in movers if c["change"] > 0.005][:5],
-            "down": [dict(c, change=round(c["change"], 3)) for c in movers if c["change"] < -0.005][:5],
+            # What your shopping costs more (or less) a month, from these changes.
+            "impact": round(sum(c["impact"] for c in changes), 2),
+            "up": [tidy(c) for c in movers if c["change"] > 0.005][:8],
+            "down": [tidy(c) for c in movers if c["change"] < -0.005][:8],
         }
-        for c in price["up"] + price["down"]:
-            c.pop("weight")
+
+    # Your grocery price index, month by month: each thing's shelf price that month (bought on two or more days;
+    # deals left out) against its usual price in its own first three months, weighted by what you spend on it.
+    # 100 = no change.
+    bases = {}
+    for pid, rs in by_product.items():
+        if len({r["bought_on"] for r in rs}) < 2:
+            continue
+        first = min(day(r) for r in rs)
+        early = [r["unit_price"] for r in rs if day(r) <= first + datetime.timedelta(days=90)]
+        # Medians, so a one-off deal (half price, Clubcard price) doesn't swing a month.
+        if median(early) > 0:
+            bases[pid] = (median(early), sum(r["unit_price"] * r["qty"] for r in rs))
+    index = []
+    for m in sorted(months):
+        num = den = 0.0
+        count = 0
+        for pid, (base, w) in bases.items():
+            paid = [r["unit_price"] for r in by_product[pid] if r["bought_on"][:7] == m]
+            # The shelf price: deals (more than 15% under the usual price) are left out, unless that's all there was.
+            shelf = [x for x in paid if x >= base * 0.85] or paid
+            if paid:
+                num += median(shelf) / base * w
+                den += w
+                count += 1
+        if den:
+            index.append({"month": m, "index": round(100 * num / den, 1), "products": count})
+
     return {
         "total": round(total, 2),
         "from": min(r["bought_on"] for r in priced),
@@ -190,6 +225,7 @@ def spending(rows: list[dict], today: datetime.date) -> dict | None:
         "a_week": round(total / len(weeks), 2),
         "months": [{"month": m, "spend": round(v, 2), "trips": len(month_trips[m])} for m, v in sorted(months.items())],
         "prices": price,
+        "index": index,
     }
 
 

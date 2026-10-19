@@ -103,6 +103,12 @@ def test_spending():
     # Milk up 10%, the other flat: overall up, weighted by spend (6.2 on P1, 4.0 on P2)
     assert s["prices"]["products"] == 2 and s["prices"]["change"] == round(0.1 * 6.2 / 10.2, 3)
     assert [c["name"] for c in s["prices"]["up"]] == ["P1"] and s["prices"]["down"] == []
+    # P1 is bought 2 in January (1 a month over ~5 months), up 20c: about 9c a month more
+    p1 = s["prices"]["up"][0]
+    assert p1["per_month"] == 0.6 and p1["impact"] == round((2.2 - 2.0) * 0.6, 2)
+    # The index: 100 in January; June has P1 at 2.20 (+10%) and P2 flat, weighted by spend (6.2 and 4.0)
+    assert [i["month"] for i in s["index"]] == ["2026-01", "2026-06"] and s["index"][0]["index"] == 100.0
+    assert s["index"][1]["index"] == round(100 * (1.1 * 6.2 + 1.0 * 4.0) / 10.2, 1)
     assert spending([row(1, "2026-01-05", None, "a")], TODAY) is None
 
 
@@ -198,3 +204,12 @@ def test_nutrition_per_pack():
     assert cola["kcal"] == round(180 / 4.184 * 20) and cola["basis"] == "per 100 ml × 2000 ml" and "protein" not in cola
     assert pack_nutrition({"quantity": "500 g", "nutriments": {}}) is None
     assert pack_nutrition({"nutriments": {"energy-kcal_100g": 100}}) is None  # no pack size
+
+
+def test_price_index_follows_the_shelf_price():
+    from app.stats import spending
+    row = lambda day, price, trip: {"catalog_id": 1, "name": "Nappies", "bought_on": day, "qty": 1, "unit_price": price, "trip": trip}
+    # €10 nappies, half price once in April: the shelf price didn't move, so neither does the index
+    s = spending([row("2026-04-04", 10.0, "a"), row("2026-04-11", 5.0, "b"), row("2026-05-02", 10.0, "c"),
+                  row("2026-08-01", 10.6, "d")], TODAY)
+    assert [i["index"] for i in s["index"]] == [100.0, 100.0, 106.0]

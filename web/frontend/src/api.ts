@@ -97,7 +97,18 @@ export type ItemHistory = {
   weekly: { week: string; qty: number; trips: number; kinds?: string[]; shopped?: boolean }[];
   /** What you've spent on it, in euro. */
   spend: number;
-  purchases: { store: string; bought_on: string; bought_at: string; bought_as: string; qty: number; unit_price: number | null; source: string }[];
+  purchases: {
+    store: string;
+    bought_on: string;
+    bought_at: string;
+    bought_as: string;
+    qty: number;
+    unit_price: number | null;
+    source: string;
+    /** Which product (kind) it was. */
+    catalog_id: number;
+    kind_name: string;
+  }[];
 };
 export type ClubcardResult = {
   trips: number;
@@ -163,7 +174,16 @@ export type BasketCheck = {
 export type ForgotItem = { catalog_id: number; name: string; category: string; qty: number; trips: number; reason: string };
 export type Forgotten = { regulars: ForgotItem[]; due_soon: ForgotItem[] };
 export type FoodGroup = { id: string; name: string; advice: string };
-export type PriceMove = { catalog_id: number; name: string; before: number; after: number; change: number };
+export type PriceMove = {
+  catalog_id: number;
+  name: string;
+  before: number;
+  after: number;
+  change: number;
+  /** How many you buy a month, and what the change adds (or saves) a month at that rate. */
+  per_month: number;
+  impact: number;
+};
 export type Spending = {
   total: number;
   from: string;
@@ -173,7 +193,9 @@ export type Spending = {
   a_shop: number;
   a_week: number;
   months: { month: string; spend: number; trips: number }[];
-  prices: { change: number; products: number; up: PriceMove[]; down: PriceMove[] } | null;
+  prices: { change: number; products: number; impact: number; up: PriceMove[]; down: PriceMove[] } | null;
+  /** Your grocery price index by month: 100 is what things cost when you first bought them. */
+  index: { month: string; index: number; products: number }[];
 } | null;
 export type TypicalAisle = { aisle: string; products: number; units: number; spend: number | null; kcal: number | null; top: string[] };
 export type TypicalShop = {

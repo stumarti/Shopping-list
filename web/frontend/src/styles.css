@@ -3302,3 +3302,255 @@ input::placeholder {
 .title-row {
   align-items: center;
 }
+
+/* Price charts: colours checked for colour-blind readers in both themes (green line, blue deals; blue cheaper,
+   red dearer; three kinds in blue, orange, aqua, always labelled) */
+.price-chart,
+.price-index,
+.impact {
+  --price-line: #1a7f4b;
+  --deal: #2a78d6;
+  --cheaper: #2a78d6;
+  --dearer: #e34948;
+  --kind-1: #2a78d6;
+  --kind-2: #eb6834;
+  --kind-3: #1baf7a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .price-chart,
+  :root:not([data-theme="light"]) .price-index,
+  :root:not([data-theme="light"]) .impact {
+    --price-line: #3aab72;
+    --deal: #3987e5;
+    --cheaper: #3987e5;
+    --dearer: #e66767;
+    --kind-1: #3987e5;
+    --kind-2: #d95926;
+    --kind-3: #199e70;
+  }
+}
+
+:root[data-theme="dark"] .price-chart,
+:root[data-theme="dark"] .price-index,
+:root[data-theme="dark"] .impact {
+  --price-line: #3aab72;
+  --deal: #3987e5;
+  --cheaper: #3987e5;
+  --dearer: #e66767;
+  --kind-1: #3987e5;
+  --kind-2: #d95926;
+  --kind-3: #199e70;
+}
+
+.price-chart .series,
+.price-chart .slot-0 {
+  --ink-series: var(--price-line);
+}
+
+.price-chart .slot-1 { --ink-series: var(--kind-1); }
+.price-chart .slot-2 { --ink-series: var(--kind-2); }
+.price-chart .slot-3 { --ink-series: var(--kind-3); }
+
+.price-chart .price-line {
+  fill: none;
+  stroke: var(--ink-series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.price-chart .price-dot {
+  fill: var(--ink-series);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+/* Deals: hollow dots under the line, not dips in it */
+.price-chart .deal-dot {
+  fill: var(--surface);
+  stroke: var(--deal);
+  stroke-width: 2;
+}
+
+.price-chart .series:not(.slot-0) .deal-dot {
+  stroke: var(--ink-series);
+}
+
+.price-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.85rem;
+}
+
+.price-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch-line {
+  display: inline-block;
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--price-line);
+}
+
+.swatch-line.slot-1 { background: var(--kind-1); }
+.swatch-line.slot-2 { background: var(--kind-2); }
+.swatch-line.slot-3 { background: var(--kind-3); }
+
+/* Your grocery price index */
+.price-index svg {
+  display: block;
+  max-width: 100%;
+}
+
+.price-index .grid {
+  stroke: color-mix(in srgb, var(--muted) 25%, transparent);
+}
+
+.price-index .axis {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.baseline-100 {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.index-line {
+  fill: none;
+  stroke: var(--price-line);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.index-dot {
+  fill: var(--price-line);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.index-label {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.spending h5 {
+  margin: 14px 0 2px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* What's driving it: bars either side of zero */
+.impact {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.impact li {
+  border-top: 1px solid #dfe3dd;
+  border-top-color: color-mix(in srgb, var(--muted) 25%, transparent);
+}
+
+.impact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 17rem) minmax(80px, 1fr) auto;
+  grid-template-areas:
+    "name bars value"
+    "detail detail detail";
+  gap: 2px 12px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 4px;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  border-radius: 8px;
+}
+
+.impact-row:not(:disabled):hover {
+  background: var(--ground);
+}
+
+.impact-row:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.impact-name {
+  grid-area: name;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.impact-bars {
+  grid-area: bars;
+  display: grid;
+  grid-template-columns: 1fr 2px 1fr;
+  align-items: center;
+  height: 14px;
+}
+
+.impact-half {
+  display: flex;
+  height: 10px;
+}
+
+.impact-half.left {
+  justify-content: flex-end;
+}
+
+.impact-zero {
+  height: 14px;
+  background: var(--muted);
+}
+
+.impact-bar {
+  height: 10px;
+}
+
+.impact-bar.up {
+  background: var(--dearer);
+  border-radius: 0 4px 4px 0;
+}
+
+.impact-bar.down {
+  background: var(--cheaper);
+  border-radius: 4px 0 0 4px;
+}
+
+.impact-value {
+  grid-area: value;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.impact-detail {
+  grid-area: detail;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 480px) {
+  .impact-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name value"
+      "bars bars"
+      "detail detail";
+  }
+}

@@ -107,7 +107,14 @@ export default function Manage({ catalog, categories, links, groupBy, run }: Pro
 
   return (
     <>
-    <Spending refresh={catalog.length} />
+    <Spending
+      refresh={catalog.length}
+      onPick={(id) => {
+        setMacros(false);
+        setOpen(id);
+        document.getElementById("common-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }}
+    />
     <div className={panelItem ? "items-layout" : undefined}>
     <section aria-labelledby="common-heading" className="items-list">
       <div className="section-head">
