@@ -61,6 +61,10 @@ docker compose logs -f        # Ctrl+C to stop watching
 | `MCP_TOKEN` | (empty) | A password for the MCP server at `/mcp` (for Claude). Set one before the app is reachable from outside your home network |
 | `TESCO_SEARCH_URL`, `DUNNES_SEARCH_URL` | (empty) | Only if a store changes its search page. `{q}` is the search term |
 
+## The icon
+
+The Docker page shows the Press icon. The compose file sets it with Unraid's `net.unraid.docker.icon` label (and `net.unraid.docker.webui`, so **WebUI** in the container's menu opens the list), and the template has `<Icon>`. Unraid downloads it from GitHub; a copy is in this folder as `icon.png`. If you set the stack up before the icon was added, copy the `labels:` lines from the new `docker-compose.yml` into yours and run **Compose Up** again.
+
 ## If the image won't download
 
 If the GitHub repository is private, so is the image. Either make the package public on GitHub (**your profile → Packages → shopping-list-web → Package settings → Change visibility**), or sign in once on the server with a token that has `read:packages`:
