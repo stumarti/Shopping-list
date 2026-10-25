@@ -196,6 +196,15 @@ MIGRATIONS = [
     """
     ALTER TABLE catalog ADD COLUMN nutrition_checked_at TEXT NOT NULL DEFAULT '';
     """,
+    # 13: how many of something to get on one shop, when you change it from the usual
+    """
+    CREATE TABLE shop_qty (
+        catalog_id INTEGER NOT NULL REFERENCES catalog (id) ON DELETE CASCADE,
+        shop_date TEXT NOT NULL,
+        qty INTEGER NOT NULL,
+        PRIMARY KEY (catalog_id, shop_date)
+    );
+    """,
 ]
 
 FALLBACK_AISLE = "Other"

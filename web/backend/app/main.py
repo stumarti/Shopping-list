@@ -102,6 +102,10 @@ class PastOrder(BaseModel):
     items: list[OrderLine] = Field(min_length=1, max_length=400)
 
 
+class ShopQty(BaseModel):
+    qty: int = Field(ge=1, le=99)
+
+
 class ShopLine(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     qty: int = Field(default=1, ge=1, le=99)
@@ -1141,6 +1145,11 @@ def create_app(
                 }
                 (skipped if u["catalog_id"] in skips else items).append(entry)
             items, skipped = pick_one_sets(items, skipped, skips, plan["date"], cat, kcal, trips, usual, macros, shelves)
+            # Quantities you changed for this shop.
+            wanted = {r["catalog_id"]: r["qty"] for r in db.rows("SELECT catalog_id, qty FROM shop_qty WHERE shop_date = ?", (plan["date"],))}
+            for e in items + skipped:
+                if e["catalog_id"] in wanted:
+                    e["qty"] = wanted[e["catalog_id"]]
             # Things you're not sure to need stay out of the shop until you add them (a pick-one set stays in: you pick).
             maybe = [e for e in items + skipped if e["badge"] == "unsure" and e["kind"] != "or"]
             items = [e for e in items if e not in maybe]
@@ -1251,6 +1260,40 @@ def create_app(
         if out:
             days = sorted(r["bought_on"] for r in rows)
             out.update({"from": days[0], "to": days[-1]})
+        return out
+
+    @app.put("/api/next-shop/qty/{catalog_id}")
+    def set_shop_qty(catalog_id: int, body: ShopQty):
+        """How many to get of a usual item on the next shop (an item you added changes on the list instead)."""
+        catalog_item(catalog_id)
+        plan = shop_plan()
+        if not plan:
+            raise HTTPException(409, "There's no next shop planned yet")
+        with db.tx() as conn:
+            conn.execute(
+                "INSERT INTO shop_qty (catalog_id, shop_date, qty) VALUES (?, ?, ?) "
+                "ON CONFLICT (catalog_id, shop_date) DO UPDATE SET qty = excluded.qty",
+                (catalog_id, plan["date"], body.qty),
+            )
+            conn.execute("DELETE FROM shop_qty WHERE shop_date < ?", (today().isoformat(),))
+        return next_shop()
+
+    @app.get("/api/basket/{store}/last-bought")
+    def last_bought(store: str):
+        """For each common item (and each generic item, from any of its kinds): what you last bought of it at this
+        store, so Claude can get the same again. {catalog id: {product, price, on, qty}}."""
+        known_store(store)
+        group = {r["id"]: r["group_id"] for r in db.rows("SELECT id, group_id FROM catalog")}
+        out: dict[int, dict] = {}
+        for r in db.rows(
+            "SELECT catalog_id, name, unit_price, bought_on, qty FROM purchases "
+            "WHERE store = ? AND catalog_id IS NOT NULL ORDER BY bought_at, id",
+            (store,),
+        ):
+            entry = {"product": r["name"], "price": r["unit_price"], "on": r["bought_on"], "qty": r["qty"]}
+            out[r["catalog_id"]] = entry
+            if group.get(r["catalog_id"]):
+                out[group[r["catalog_id"]]] = entry
         return out
 
     @app.post("/api/next-shop/skip/{catalog_id}")

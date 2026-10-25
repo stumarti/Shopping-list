@@ -1,6 +1,7 @@
 import { Fragment, lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, type CatalogItem, type FoodGroup, type NextShop as Plan, type ShopItem, type TypicalShop } from "./api";
 import Icon, { type IconName } from "./Icon";
+import Qty, { changeQty } from "./Qty";
 import { byTrips, OrderToggle, useOrder } from "./Order";
 
 const Scanner = lazy(() => import("./Scanner"));
@@ -238,6 +239,16 @@ export default function NextShop({ listSize, catalog, groupBy, run }: Props) {
       onChoose={(o) => choose(i, o)}
       got={maybe ? undefined : got.has(key(i))}
       onGot={maybe ? undefined : () => toggleGot(key(i))}
+      onQty={
+        maybe
+          ? undefined
+          : (q) =>
+              run(async () => {
+                const next = await changeQty(i, q);
+                if (next) setPlan(next);
+                else await load();
+              })
+      }
       action={
         maybe ? (
           <button className="add-one" aria-label={`Add ${i.name} to this shop`} title="Add to this shop" onClick={() => addItem(i.name, i.category, i.qty)}>
@@ -564,6 +575,7 @@ function ShopRow({
   onChoose,
   got,
   onGot,
+  onQty,
   action,
 }: {
   i: ShopItem;
@@ -571,6 +583,8 @@ function ShopRow({
   onChoose: (optionId: number) => void;
   got?: boolean;
   onGot?: () => void;
+  /** Change how many (items on the shop; not maybes). */
+  onQty?: (qty: number) => void;
   action: ReactNode;
 }) {
   return (
@@ -589,7 +603,7 @@ function ShopRow({
       <div className="shop-item-main">
         <span className="shop-item-name">
           {i.name}
-          {i.qty > 1 && <span className="muted"> ×{i.qty}</span>}
+          {i.qty > 1 && (!onQty || got) && <span className="muted"> ×{i.qty}</span>}
         </span>
         <span className="shop-item-meta">
           {i.kind === "or" && i.chosen === null && <span className="badge pick">Pick one</span>}
@@ -617,6 +631,7 @@ function ShopRow({
           </span>
         )}
       </div>
+      {onQty && !got && <Qty value={i.qty} name={i.name} onChange={onQty} />}
       {action}
     </li>
   );

@@ -306,6 +306,10 @@ export const api = {
   clearBasketCheck: (store: string) => call<void>(`/basket/${store}/check`, { method: "DELETE" }),
   keepSwap: (itemId: number) => call<BasketCheck>(`/basket/check-items/${itemId}/keep`, { method: "POST" }),
   foodGroups: () => call<FoodGroup[]>("/food-groups"),
+  /** How many of a usual item to get on the next shop. */
+  setShopQty: (catalogId: number, qty: number) => call<NextShop>(`/next-shop/qty/${catalogId}`, json("PUT", { qty })),
+  /** What you last bought of each item at a store: {catalog id: {product, price, on, qty}}. */
+  lastBought: (store: string) => call<Record<string, { product: string; price: number | null; on: string; qty: number }>>(`/basket/${store}/last-bought`),
   skipForShop: (catalogId: number) => call<NextShop>(`/next-shop/skip/${catalogId}`, { method: "POST" }),
   unskipForShop: (catalogId: number) => call<NextShop>(`/next-shop/skip/${catalogId}`, { method: "DELETE" }),
   clearCommon: () => call<{ removed: number }>("/catalog/clear", { method: "POST" }),

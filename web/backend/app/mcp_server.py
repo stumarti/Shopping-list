@@ -206,6 +206,7 @@ def build(app, token: str | None = None) -> tuple[Route, Callable[[], contextlib
         if not info:
             raise ToolError('The store is "tesco" or "dunnes"')
         plan = await api("GET", "/next-shop")
+        last = await api("GET", f"/basket/{store}/last-bought")
         catalog = {c["id"]: c for c in await api("GET", "/catalog")}
         by_name = {c["name"].lower(): c for c in catalog.values()}
         lines = []
@@ -218,6 +219,9 @@ def build(app, token: str | None = None) -> tuple[Route, Callable[[], contextlib
             elif c:
                 entry["product_url"] = (c["products"].get(store) or {}).get("url")
                 entry["never_swap"] = c["exact"]
+                seen = last.get(str(c["id"]))
+                if seen:
+                    entry["last_bought_here"] = {"product": seen["product"], "price": seen["price"], "on": seen["on"]}
             lines.append(entry)
         return {"store": info["name"], "site": info["home"], "search": info["search"], "items": lines,
                 "rules": "Only add to the basket. Never check out, pay, book or change a slot, or change the account."}
