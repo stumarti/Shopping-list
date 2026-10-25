@@ -692,6 +692,17 @@ def test_next_shop(tmp_path):
     back = c.delete(f"/api/next-shop/skip/{bread['catalog_id']}").json()
     assert "Brennans Family Pan 800g" in {i["name"] for i in back["items"]}
 
+    # Change how many: just for this shop
+    milk = next(i for i in c.get("/api/next-shop").json()["items"] if i["name"] == "Tesco Whole Milk 2L")
+    after = c.put(f"/api/next-shop/qty/{milk['catalog_id']}", json={"qty": 3}).json()
+    assert next(i for i in after["items"] if i["name"] == "Tesco Whole Milk 2L")["qty"] == 3
+    assert c.put(f"/api/next-shop/qty/{milk['catalog_id']}", json={"qty": 0}).status_code == 422
+
+    # What you last bought of each at a store
+    last = c.get("/api/basket/tesco/last-bought").json()
+    assert last[str(milk["catalog_id"])] == {"product": "Tesco Whole Milk 2L", "price": 2.19, "on": "2026-10-10", "qty": 1}
+    assert c.get("/api/basket/dunnes/last-bought").json() == {}
+
     # Nothing bought yet: no date, just what you added
     empty = TestClient(create_app(db_path=str(tmp_path / "e.db"), static_dir=str(tmp_path / "none"))).get("/api/next-shop").json()
     assert empty == {"shop": None, "items": [], "maybe": [], "skipped": []}
@@ -854,6 +865,9 @@ def test_item_history_works_out_timing_for_the_kind(tmp_path):
     assert x["summary"]["price"]["low"] == 2.0 and x["summary"]["price"]["high"] == 2.4  # tenderstem only
     assert [p["bought_as"] for p in x["purchases"]] == ["Tesco Tenderstem Broccoli 200g"] * 3
     assert sum(1 for w in x["weekly"] if w["qty"]) == 3 and x["spend"] == 6.6
+
+    # The generic item's last buy at the store is whichever kind was bought last
+    assert c.get("/api/basket/tesco/last-bought").json()[str(broccoli)]["product"] == "Tesco Broccoli Florets 360g"
 
     # The generic item: the same as the kind's default view, with each kind's own count and price
     g = c.get(f"/api/history/items/{broccoli}").json()

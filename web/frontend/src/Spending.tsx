@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useWidth } from "./useWidth";
 import { api, type Spending as Data } from "./api";
+import { PriceImpact, PriceIndex } from "./PriceTrends";
 
 const H = 140;
 const LEFT = 48;
@@ -14,6 +15,7 @@ const roundEuro = (n: number) => `€${Math.round(n).toLocaleString("en-IE")}`;
 const monthName = (m: string, year = false) =>
   new Date(m + "-15T12:00:00").toLocaleDateString("en-IE", year ? { month: "short", year: "numeric" } : { month: "short" });
 const fmt = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
+const moved = (index: number | null, change: number) => (index !== null ? index / 100 - 1 : change);
 const pct = (n: number) => `${Math.abs(n * 100).toFixed(1)}%`;
 
 type Month = { month: string; spend: number; trips: number };
@@ -41,7 +43,7 @@ function niceMax(n: number) {
 
 /** What you've spent and how prices have moved, from your purchase history. The headline shows; the month by
  * month chart and the biggest price changes open below it. */
-export default function Spending({ refresh }: { refresh: number }) {
+export default function Spending({ refresh, onPick }: { refresh: number; onPick?: (catalogId: number) => void }) {
   const [data, setData] = useState<Data>(null);
   const [hover, setHover] = useState<Month | null>(null);
   // Price changes per generic item (all kinds of broccoli together, the default), or per exact product.
@@ -51,6 +53,8 @@ export default function Spending({ refresh }: { refresh: number }) {
     api.spending(exact).then(setData, () => setData(null));
   }, [refresh, exact]);
   if (!data) return null;
+  // How much prices have moved: the price index's latest month (shelf prices), else the before-and-after average.
+  const lastIndex = data.index.length >= 2 ? data.index[data.index.length - 1].index : null;
 
   const months = allMonths(data.months);
   const max = niceMax(Math.max(...months.map((m) => m.spend)));
@@ -76,7 +80,7 @@ export default function Spending({ refresh }: { refresh: number }) {
               <>
                 {" · "}
                 <span>
-                  prices {p.change >= 0 ? "▲ up" : "▼ down"} {pct(p.change)}
+                  prices {moved(lastIndex, p.change) >= 0 ? "▲ up" : "▼ down"} {pct(moved(lastIndex, p.change))}
                 </span>
               </>
             )}
@@ -155,44 +159,21 @@ export default function Spending({ refresh }: { refresh: number }) {
               </div>
             </div>
             <p>
-              The {p.products} {exact ? "products" : "things"} you've bought for at least three months cost {p.change >= 0 ? "more" : "less"} now:{" "}
+              Things you buy again and again cost{" "}
               <strong>
-                {p.change >= 0 ? "up" : "down"} {pct(p.change)}
-              </strong>
-              , comparing each one's price in its first three months with its last three, weighted by what you spend on it.
+                {moved(lastIndex, p.change) >= 0 ? "▲" : "▼"} {pct(moved(lastIndex, p.change))} {moved(lastIndex, p.change) >= 0 ? "more" : "less"}
+              </strong>{" "}
+              than when you started, which is about <strong>{p.impact >= 0 ? `+€${p.impact.toFixed(2)}` : `−€${Math.abs(p.impact).toFixed(2)}`}</strong> on a
+              month's shopping.
             </p>
-            <div className="movers">
-              {p.up.length > 0 && (
-                <div>
-                  <h5>Gone up most</h5>
-                  <ul>
-                    {p.up.map((m) => (
-                      <li key={m.catalog_id}>
-                        <span>{m.name}</span>
-                        <span className="muted">
-                          {euro(m.before)} → {euro(m.after)} <span className="move">▲ {pct(m.change)}</span>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {p.down.length > 0 && (
-                <div>
-                  <h5>Gone down most</h5>
-                  <ul>
-                    {p.down.map((m) => (
-                      <li key={m.catalog_id}>
-                        <span>{m.name}</span>
-                        <span className="muted">
-                          {euro(m.before)} → {euro(m.after)} <span className="move">▼ {pct(m.change)}</span>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
+            <h5>Your grocery prices</h5>
+            <PriceIndex index={data.index} />
+            <h5>What's driving it</h5>
+            <p className="muted part-note">
+              Each price change, sized by what it adds (or saves) a month at the rate you buy it: biggest first, not just the biggest
+              percentage.{onPick && " Tap one to open it."}
+            </p>
+            <PriceImpact moves={[...p.up, ...p.down].sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))} onPick={onPick} />
           </>
         )}
       </details>

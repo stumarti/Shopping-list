@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import Icon from "./Icon";
 import { api, fillLink, type BasketCheck, type CatalogItem, type Links, type NextShop, type ShopItem } from "./api";
 import { BeforeYouOrder, CheckBasket, StatusMark, type BasketStatus } from "./BasketCheck";
+import Qty, { changeQty } from "./Qty";
 
 type Props = {
   listSize: number;
@@ -38,7 +39,11 @@ function remember(key: string, value: unknown) {
 }
 
 /** One line of the shop as the store will see it: what to get, and the exact product if one is saved. */
+type Last = { product: string; price: number | null; on: string };
 type Line = {
+  item: ShopItem;
+  /** What you last bought of it at this store, for Claude to get the same again. */
+  last: Last | null;
   key: string;
   catalogId: number | null;
   name: string;
@@ -49,7 +54,9 @@ type Line = {
   exact: boolean;
 };
 
-function lines(plan: NextShop, catalog: CatalogItem[], store: Store): Line[] {
+const shortDay = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "short" });
+
+function lines(plan: NextShop, catalog: CatalogItem[], store: Store, lastBought: Record<string, Last>): Line[] {
   const byId = new Map(catalog.map((c) => [c.id, c]));
   const byName = new Map(catalog.map((c) => [c.name.toLowerCase(), c]));
   return plan.items.map((i: ShopItem) => {
@@ -58,7 +65,11 @@ function lines(plan: NextShop, catalog: CatalogItem[], store: Store): Line[] {
     const c = (pickedId !== null ? byId.get(pickedId) : undefined) ?? byName.get(i.name.toLowerCase());
     const name = i.kind === "or" && i.chosen !== null ? (byId.get(i.chosen)?.name ?? i.name) : i.name;
     const choices = i.kind === "or" && i.chosen === null ? (i.options ?? []).map((o) => o.name) : null;
+    // The product's own last buy here, else (for a generic item) its kinds' latest.
+    const last = (c && lastBought[String(c.id)]) || (i.catalog_id !== null && lastBought[String(i.catalog_id)]) || null;
     return {
+      item: i,
+      last: choices ? null : last,
       key: `${i.catalog_id ?? "l" + i.list_item_id}`,
       catalogId: c && !choices ? c.id : null,
       name,
@@ -76,7 +87,8 @@ function prompt(store: Store, items: Line[], cheaper: Cheaper): string {
   const list = items
     .map((l) => {
       const what = l.choices ? `one of: ${l.choices.join(" or ")}` : l.name;
-      return `- ${l.qty} × ${what}${l.exact ? " [exact: never swap]" : ""}${l.url ? ` (${l.url})` : ""}`;
+      const last = l.last ? ` — last bought here: ${l.last.product}${l.last.price !== null ? `, €${l.last.price.toFixed(2)}` : ""} on ${shortDay(l.last.on)}` : "";
+      return `- ${l.qty} × ${what}${l.exact ? " [exact: never swap]" : ""}${l.url ? ` (${l.url})` : ""}${last}`;
     })
     .join("\n");
   const exact = items.some((l) => l.exact);
@@ -119,7 +131,7 @@ ${list}
 
 How to do it:
 1. Go to ${store.home} and check I'm signed in. If I'm not, stop and tell me.
-2. For each item, open its link if it has one. If not, search for it by name and pick the closest match: same brand and size first, then the store's own brand in the same size.
+2. For each item, open its link if it has one. If not, and it says what I last bought here, get that same product. Otherwise search for it by name and pick the closest match: same brand and size first, then the store's own brand in the same size.
 3. Add it to the basket with the quantity shown. If it's already in the basket, set the quantity rather than adding more.
 4. If something is out of stock, pick a close swap (same type and size) and note it. If there's no sensible swap, skip it.${exact ? " Never swap an item marked [exact]: if it's out of stock, skip it and tell me." : ""}
 5. When you're done, open the basket and check the quantities.
@@ -147,7 +159,11 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
   const [exactNow, setExactNow] = useState<Record<number, boolean>>({});
   const [check, setCheck] = useState<BasketCheck>(null);
 
+  const [lastBought, setLastBought] = useState<Record<string, Last>>({});
   const loadPlan = () => api.nextShop().then(setPlan, () => setPlan(null));
+  useEffect(() => {
+    api.lastBought(storeId).then(setLastBought, () => setLastBought({}));
+  }, [storeId, listSize]);
   useEffect(() => {
     void loadPlan();
   }, [listSize]);
@@ -169,7 +185,13 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
     remember(CHEAPER_KEY, next);
   };
 
-  const items = lines(plan, catalog, store).map((l) => (l.catalogId !== null && l.catalogId in exactNow ? { ...l, exact: exactNow[l.catalogId] } : l));
+  const items = lines(plan, catalog, store, lastBought).map((l) => (l.catalogId !== null && l.catalogId in exactNow ? { ...l, exact: exactNow[l.catalogId] } : l));
+  const setQty = (l: Line, qty: number) =>
+    run(async () => {
+      const next = await changeQty(l.item, qty);
+      if (next) setPlan(next);
+      else await loadPlan();
+    });
   const setExact = (id: number, exact: boolean) => {
     setExactNow({ ...exactNow, [id]: exact });
     void run(() => api.editCommon(id, { exact })).then((ok) => {
@@ -241,7 +263,6 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
                       >
                         {l.choices ? `${l.name}: ${l.choices.join(" or ")}` : l.name}
                       </a>
-                      {l.qty > 1 && <span className="muted"> ×{l.qty}</span>}
                       {l.url && (
                         <span className="saved-dot" title="Saved product">
                           ✓
@@ -249,6 +270,13 @@ export default function ShopOnline({ listSize, catalog, links, groupBy, run }: P
                       )}
                       {statusOf(l) && <StatusMark status={statusOf(l)!} />}
                     </span>
+                    <Qty value={l.qty} name={l.name} onChange={(q) => setQty(l, q)} />
+                    {l.last && (
+                      <span className="last-bought muted" title={`Last bought at ${store.name} on ${shortDay(l.last.on)}`}>
+                        Last time: {l.last.product}
+                        {l.last.price !== null && ` · €${l.last.price.toFixed(2)}`}
+                      </span>
+                    )}
                     {l.catalogId !== null && (
                       <span className="online-actions">
                         {linking !== l.key && (

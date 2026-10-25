@@ -12,10 +12,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 DIR="$OUT/shopping-list"
 rm -rf "$DIR"
 mkdir -p "$DIR"
-sed "s#__IMAGE__#$IMAGE#g" "$HERE/docker-compose.yml" > "$DIR/docker-compose.yml"
+sed -e "s#__IMAGE__#$IMAGE#g" -e "s#__REPO__#$REPO#g" "$HERE/docker-compose.yml" > "$DIR/docker-compose.yml"
 sed -e "s#__IMAGE__#$IMAGE#g" -e "s#__REPO__#$REPO#g" "$HERE/shopping-list.xml" > "$DIR/shopping-list.xml"
 cp "$HERE/.env.example" "$DIR/.env.example"
 cp "$HERE/.env.example" "$DIR/.env"
+cp "$HERE/icon.png" "$DIR/icon.png"
 sed -e "s#__IMAGE__#$IMAGE#g" -e "s#__VERSION__#$VERSION#g" -e "s#__REPO__#$REPO#g" "$HERE/README.md" > "$DIR/README.md"
 echo "$VERSION" > "$DIR/VERSION"
 

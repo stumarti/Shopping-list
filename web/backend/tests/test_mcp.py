@@ -65,6 +65,8 @@ def test_mcp_tools(tmp_path):
         basket = m.call("basket_list", store="tesco")
         assert basket["store"] == "Tesco" and {i["name"] for i in basket["items"]} == {"Tesco Whole Milk 2L", "Brennans Family Pan 800g", "Birthday candles"}
         assert all(i.get("product_url") is None for i in basket["items"])
+        milk_line = next(i for i in basket["items"] if i["name"] == "Tesco Whole Milk 2L")
+        assert milk_line["last_bought_here"] == {"product": "Tesco Whole Milk 2L", "price": 2.19, "on": "2026-10-10"}
         done = m.call("record_basket_results", store="tesco", total="€4.69", results=[
             {"item": "Tesco Whole Milk 2L", "status": "added", "product": "Tesco Whole Milk 2L", "url": "https://www.tesco.ie/shop/en-IE/products/123456", "qty": 1},
             {"item": "Brennans Family Pan 800g", "status": "missing", "note": "out of stock"},

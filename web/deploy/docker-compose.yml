@@ -5,6 +5,10 @@ services:
     image: __IMAGE__
     container_name: shopping-list
     restart: unless-stopped
+    labels:
+      # Unraid's Docker page: the Press icon, and the WebUI link in the container's menu.
+      net.unraid.docker.icon: "https://raw.githubusercontent.com/__REPO__/main/web/deploy/icon.png"
+      net.unraid.docker.webui: "http://[IP]:[PORT:8080]/"
     ports:
       - "${PORT:-8080}:8080"
     environment:
