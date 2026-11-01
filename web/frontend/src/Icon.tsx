@@ -36,8 +36,9 @@ import milk from "@material-symbols/svg-400/rounded/local_drink.svg?raw";
 import protein from "@material-symbols/svg-400/rounded/egg_alt.svg?raw";
 import fats from "@material-symbols/svg-400/rounded/water_drop.svg?raw";
 import treats from "@material-symbols/svg-400/rounded/cookie.svg?raw";
+import paste from "@material-symbols/svg-400/rounded/content_paste.svg?raw";
 
-const SOURCES = { cart, cartFill, store, list, settings, light, dark, auto, close, add, checked, unchecked, copy, open, link, lock, savings, fire, chart, event, trash, undo, search, basket, swap, missing, unknown, check, scan, camera, veg, bread, milk, protein, fats, treats };
+const SOURCES = { cart, cartFill, store, list, settings, light, dark, auto, close, add, checked, unchecked, copy, open, link, lock, savings, fire, chart, event, trash, undo, search, basket, swap, missing, unknown, check, scan, camera, veg, bread, milk, protein, fats, treats, paste };
 export type IconName = keyof typeof SOURCES;
 
 // Just the drawing: the path data from each file.

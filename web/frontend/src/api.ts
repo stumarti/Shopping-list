@@ -226,6 +226,27 @@ export type CommonChange = Partial<Pick<CatalogItem, "name" | "category" | "barc
 };
 export type Product = { barcode: string; name: string; brand: string; quantity: string; category: string; source: string };
 
+/** What the paste box found, before doing anything with it. */
+export type Pasted =
+  | { kind: "clubcard"; trips: number; from: string; to: string; not_groceries: number; products: number }
+  | { kind: "orders"; orders: { order_ref: string; date: string; store: string; products: number }[]; products: number; from: string; to: string }
+  | { kind: "basket"; store: string | null; items: number; counts: { added: number; swapped: number; missing: number }; total: string }
+  | { kind: "list"; items: { name: string; qty: number }[] };
+
+/** What the paste box did. */
+export type PasteDone =
+  | { kind: "clubcard"; result: ClubcardResult }
+  | { kind: "orders"; result: { products: number; new_common_items: number; already_imported: number; orders: unknown[] } }
+  | { kind: "basket"; result: BasketCheck }
+  | { kind: "list"; result: { added: number; names: string[] } };
+
+const pastePath = (apply: boolean, store?: string) => `/paste?apply=${apply}${store ? `&store=${store}` : ""}`;
+const pasteBody = (body: string | Blob): RequestInit => ({
+  method: "POST",
+  body,
+  headers: { "Content-Type": typeof body === "string" ? "text/plain; charset=utf-8" : "application/octet-stream" },
+});
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
@@ -259,6 +280,10 @@ export const api = {
   forgetRecordedShop: (orderRef: string) => call<void>(`/history/manual/${encodeURIComponent(orderRef)}`, { method: "DELETE" }),
   importClubcard: (file: File) =>
     call<ClubcardResult>("/history/tesco/clubcard", { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" } }),
+  /** The paste box: anything pasted or dropped, sent as it is. Says what it is, changing nothing. */
+  pasteCheck: (body: string | Blob, store?: string) => call<Pasted>(pastePath(false, store), pasteBody(body)),
+  /** ...and does it: imports the trips or orders, checks the basket, or adds to the list. */
+  pasteApply: (body: string | Blob, store?: string) => call<PasteDone>(pastePath(true, store), pasteBody(body)),
   barcode: (code: string) => call<Product>(`/barcode/${encodeURIComponent(code)}`),
   add: (name: string, category: string, qty = 1, barcode = "") =>
     call<ListItem>("/list", json("POST", { name, category, qty, barcode })),

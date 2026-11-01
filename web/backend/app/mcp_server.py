@@ -248,6 +248,15 @@ def build(app, token: str | None = None) -> tuple[Route, Callable[[], contextlib
         Bought things also come off the list."""
         return await api("POST", "/history/manual", json={"store": store, "date": date, "items": [i.model_dump() for i in items]})
 
+    @server.tool(annotations=WRITE)
+    async def update_from_paste(text: str, apply: bool = False, store: str = "") -> dict:
+        """The app's paste box: give it Tesco's Clubcard data (JSON), past online orders (JSON with order_ref and
+        items with links), Claude in Chrome's basket results, or plain lines of things to get ("2 x milk"). With
+        apply false (the default) it says what it found and changes nothing; with apply true it imports it.
+        store ("tesco" or "dunnes") is only needed for basket results without product links."""
+        params = {"apply": "true" if apply else "false"} | ({"store": store} if store else {})
+        return await api("POST", "/paste", params=params, content=text.encode(), headers={"content-type": "text/plain"})
+
     @server.tool(annotations=READ)
     async def last_basket_check(store: str = "tesco") -> dict | None:
         """The last recorded basket check for a store: what went in, what was swapped and what's missing."""

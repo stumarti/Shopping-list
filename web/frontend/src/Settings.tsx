@@ -1,13 +1,11 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, type Aisle, type FinderStatus, type NutritionStatus } from "./api";
+import PasteBox from "./PasteBox";
 
 type Props = {
   categories: string[];
   run: (action: () => Promise<unknown>) => Promise<boolean>;
 };
-
-const fmt = (iso: string) =>
-  new Date(iso.slice(0, 10) + "T12:00:00").toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
 
 export default function Settings({ categories, run }: Props) {
   // Bumped when new items arrive, so the barcode section recounts what it can look up.
@@ -15,7 +13,7 @@ export default function Settings({ categories, run }: Props) {
   const bump = () => setItemsChanged((n) => n + 1);
   return (
     <>
-      <ClubcardUpload run={run} onDone={bump} />
+      <PasteBox run={run} onDone={bump} />
       <BarcodeFinder itemsChanged={itemsChanged} />
       <NutritionFiller itemsChanged={itemsChanged} />
       <ConnectClaude />
@@ -23,55 +21,6 @@ export default function Settings({ categories, run }: Props) {
       <AddCommon categories={categories} run={run} onDone={bump} />
       <StartAgain run={run} onDone={bump} />
     </>
-  );
-}
-
-function ClubcardUpload({ run, onDone }: { run: Props["run"]; onDone: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-
-  const upload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setBusy(true);
-    setNote(null);
-    await run(async () => {
-      const r = await api.importClubcard(file);
-      setNote(
-        r.new_trips
-          ? `Added ${r.new_trips} shopping trips from ${fmt(r.from)} to ${fmt(r.to)}` +
-              (r.already_imported ? ` (${r.already_imported} were already here)` : "") +
-              `, and ${r.new_common_items} new items.` +
-              (r.not_groceries
-                ? ` ${r.not_groceries} non-grocery ${r.not_groceries === 1 ? "line" : "lines"} (clothes, bags) kept but left out of the figures.`
-                : "") +
-              ` The file is saved as ${r.saved_as}.`
-          : `All ${r.trips} trips in that file were already here.`,
-      );
-      onDone();
-    });
-    setBusy(false);
-  };
-
-  return (
-    <section aria-labelledby="upload-heading">
-      <h2 id="upload-heading">Tesco Clubcard data</h2>
-      <p className="muted">
-        Everything you've bought with your Clubcard, in store and online. On tesco.ie: <em>My account → Request your Tesco data</em>. When the
-        email arrives, download the file and upload it here as it is (.json or .zip). Nothing in it is thrown away, and uploading a newer one
-        only adds the new trips.
-      </p>
-      <label className={`upload${busy ? " busy" : ""}`}>
-        <input type="file" accept=".json,.zip,application/json,application/zip" onChange={upload} disabled={busy} />
-        {busy ? "Reading…" : "Upload Tesco data file"}
-      </label>
-      {note && (
-        <p className="muted" role="status">
-          {note}
-        </p>
-      )}
-    </section>
   );
 }
 
