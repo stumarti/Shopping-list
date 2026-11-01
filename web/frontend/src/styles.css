@@ -3613,3 +3613,117 @@ input::placeholder {
     height: 36px;
   }
 }
+
+/* The paste box: one place for anything that updates Press */
+.paste-box h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.paste-zone {
+  margin-top: 12px;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  padding: 8px;
+  background: var(--ground);
+}
+
+.paste-zone.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.paste-zone textarea {
+  width: 100%;
+  font: inherit;
+  font-size: 0.9rem;
+  color: inherit;
+  background: transparent;
+  border: none;
+  resize: vertical;
+  padding: 6px 8px;
+  outline: none;
+}
+
+.paste-zone:focus-within {
+  border-color: var(--accent);
+}
+
+.paste-file {
+  margin: 8px;
+  overflow-wrap: anywhere;
+}
+
+.paste-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px;
+}
+
+.paste-actions button,
+.upload.subtle {
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: inherit;
+  font-weight: 600;
+  margin-top: 0;
+}
+
+.paste-found {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+
+.paste-found > .icon {
+  flex: none;
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+.paste-found p {
+  margin: 2px 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.paste-found.problem {
+  background: var(--danger-soft);
+}
+
+.paste-found.problem .icon {
+  color: var(--danger);
+}
+
+.paste-store {
+  display: flex;
+  width: fit-content;
+  margin-bottom: 8px;
+}
+
+.paste-help {
+  margin-top: 6px;
+  font-size: 0.9rem;
+}
+
+.paste-help summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.paste-help ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.paste-help li + li {
+  margin-top: 4px;
+}

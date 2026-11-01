@@ -81,6 +81,9 @@ def test_mcp_tools(tmp_path):
         assert history["summary"]["trips"] == 6 and history["spent_eur"] == 13.14
         assert m.call("spending")["trips"] == 6
         assert m.call("find_items", query="butter")[0]["name"] == "Kerrygold Butter 227g"
+        found = m.call("update_from_paste", text="2 x Kitchen roll")
+        assert found == {"kind": "list", "items": [{"name": "Kitchen roll", "qty": 2}], "applied": False}
+        assert m.call("update_from_paste", text="2 x Kitchen roll", apply=True)["result"]["added"] == 1
         recorded = m.call("record_shop", store="Lidl", date="2026-10-14", items=[{"name": "Kerrygold Butter 227g", "qty": 1, "price": 3.5}])
         assert recorded["products"] == 1 and recorded["store"] == "Lidl"
 

@@ -1036,3 +1036,79 @@ def test_price_changes_by_generic_item_or_exact_product(tmp_path):
     assert generic["products"] == 1 and [m["name"] for m in generic["up"]] == ["Broccoli"]
     exact = c.get("/api/spending?exact=true").json()["prices"]
     assert exact["products"] == 2 and [m["name"] for m in exact["up"]] == ["Tesco Broccoli Florets 360g"]
+
+
+# The paste box: one place for anything that updates the app
+
+
+def paste(client, text, apply=False, store=None):
+    params = {"apply": "true"} if apply else {}
+    if store:
+        params["store"] = store
+    body = text if isinstance(text, bytes) else text.encode()
+    return client.post("/api/paste", content=body, params=params, headers={"content-type": "text/plain"})
+
+
+def test_paste_clubcard_previews_then_imports(client):
+    import io, json as _json, zipfile
+    r = paste(client, _json.dumps(EXPORT)).json()
+    assert r == {"kind": "clubcard", "trips": 3, "from": "2026-09-28", "to": "2026-10-12", "not_groceries": 2,
+                 "products": 6, "applied": False}
+    assert client.get("/api/history").json()["orders"] == []  # a preview changes nothing
+    done = paste(client, _json.dumps(EXPORT), apply=True).json()
+    assert done["kind"] == "clubcard" and done["result"]["new_trips"] == 3
+    # The zip from Tesco works too (dropped as a file); the trips are already there.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("Purchases.json", _json.dumps(EXPORT))
+    again = paste(client, buf.getvalue(), apply=True).json()
+    assert again["result"]["new_trips"] == 0 and again["result"]["already_imported"] == 3
+
+
+def test_paste_past_orders(client):
+    import json as _json
+    orders = {"orders": [
+        {"order_ref": "t-1", "date": "2026-09-12", "items": [
+            {"name": "Avonmore Fresh Milk 2 Litre", "qty": 2, "url": "https://www.tesco.ie/shop/en-IE/products/111", "price": 4.2}]},
+        {"orderId": "d-1", "date": "2026-09-19", "items": [
+            {"name": "Brennans Family Pan 800g", "url": "https://www.dunnesstoresgrocery.com/product/brennans-family-pan-800g-id-100123456"}]},
+    ]}
+    r = paste(client, _json.dumps(orders)).json()
+    assert r["kind"] == "orders" and r["products"] == 2 and (r["from"], r["to"]) == ("2026-09-12", "2026-09-19")
+    assert [(o["order_ref"], o["store"], o["products"]) for o in r["orders"]] == [("t-1", "tesco", 1), ("d-1", "dunnes", 1)]
+    done = paste(client, _json.dumps(orders), apply=True).json()["result"]
+    assert done["products"] == 2 and done["new_common_items"] == 2 and done["already_imported"] == 0
+    assert paste(client, _json.dumps(orders), apply=True).json()["result"]["already_imported"] == 2
+    # A single order on its own, with links from nowhere Press knows
+    bad = {"order_ref": "x", "items": [{"name": "Thing", "url": "https://www.aldi.ie/p/1"}]}
+    assert paste(client, _json.dumps(bad)).status_code == 422
+
+
+def test_paste_basket_results_and_lists(client):
+    client.post("/api/list", json={"name": "Milk"})
+    reply = ('All done! Here is the summary.\n```json\n{"results": [{"item": "Milk", "status": "added", '
+             '"product": "Avonmore Milk 2L", "url": "https://www.tesco.ie/shop/en-IE/products/111", "qty": 1}], "total": "€2.19"}\n```')
+    r = paste(client, reply).json()
+    assert r == {"kind": "basket", "store": "tesco", "items": 1, "counts": {"added": 1, "swapped": 0, "missing": 0},
+                 "total": "€2.19", "applied": False}
+    done = paste(client, reply, apply=True).json()["result"]
+    assert done["store"] == "tesco" and done["counts"]["added"] == 1
+
+    # No links: it needs to be told the store
+    vague = '{"results": [{"item": "Milk", "status": "missing"}]}'
+    assert paste(client, vague).json()["store"] is None
+    assert paste(client, vague, apply=True).status_code == 422
+    assert paste(client, vague, apply=True, store="dunnes").json()["result"]["store"] == "dunnes"
+
+    # Plain lines go on the list, with quantities
+    r = paste(client, "- 2 x Bananas\nmilk\nKitchen roll x3\n\n[ ] Bananas").json()
+    assert r == {"kind": "list", "items": [{"name": "Bananas", "qty": 3}, {"name": "milk", "qty": 1},
+                                           {"name": "Kitchen roll", "qty": 3}], "applied": False}
+    paste(client, "- 2 x Bananas\nmilk\nKitchen roll x3\n\n[ ] Bananas", apply=True)
+    items = {i["name"]: i for i in client.get("/api/list").json()}
+    assert items["Bananas"]["qty"] == 3 and items["Bananas"]["category"] == "Fruit & veg"
+    assert items["Milk"]["qty"] == 2  # already on the list: bumped
+
+    # Things it doesn't know
+    assert paste(client, "   ").status_code == 422
+    assert "not one Press knows" in paste(client, '{"hello": "world"}').json()["detail"]

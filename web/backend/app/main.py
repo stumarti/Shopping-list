@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from . import clubcard, mcp_server, nutrition, results
+from . import clubcard, mcp_server, nutrition, paste as pasted, results
 from .catalog import FOOD_GROUP_IDS, FOOD_GROUPS, guess_aisle, guess_food_group
 from .db import Database, category_order
 from .finder import BarcodeFinder
@@ -979,6 +979,9 @@ def create_app(
         raw = await request.body()
         if len(raw) > 200 * 1024 * 1024:
             raise HTTPException(413, "That file is over 200 MB. Upload the purchases file on its own.")
+        return await clubcard_import(raw)
+
+    async def clubcard_import(raw: bytes) -> dict:
         try:
             trips, not_groceries = clubcard.parse(clubcard.load(raw))
         except ValueError as e:
@@ -991,6 +994,58 @@ def create_app(
         saved_as = await run_in_threadpool(keep_upload, raw)
         result = await run_in_threadpool(save_clubcard, trips, not_groceries, min_trips)
         return {**result, "saved_as": saved_as}
+
+    @app.post("/api/paste")
+    async def paste(request: Request, apply: bool = False, store: str | None = None):
+        """The paste box: anything pasted or dropped, sent as it is. Press works out what it is (Tesco's Clubcard
+        data, past online orders, Claude's basket results, or a list of things to get) and says what it would do;
+        with apply=true it does it. store: for basket results whose links don't say which store."""
+        raw = await request.body()
+        if len(raw) > 200 * 1024 * 1024:
+            raise HTTPException(413, "That's over 200 MB. Upload the purchases file on its own.")
+        try:
+            found = await run_in_threadpool(pasted.detect, raw)
+        except pasted.NotRecognised as e:
+            raise HTTPException(422, str(e))
+        kind = found["kind"]
+        if kind == "basket":
+            if store:
+                known_store(store)
+            found["store"] = found["store"] or store
+        if not apply:
+            if kind == "orders":
+                found["orders"] = [{"order_ref": o["order_ref"], "date": o["date"], "store": o["store"],
+                                    "products": len(o["items"])} for o in found["orders"]]
+            return {**found, "applied": False}
+
+        if kind == "clubcard":
+            result = await clubcard_import(raw)
+        elif kind == "orders":
+            result = {"orders": [], "products": 0, "new_common_items": 0, "already_imported": 0}
+            for o in found["orders"]:
+                try:
+                    order = PastOrder(order_ref=o["order_ref"], date=o["date"], items=[
+                        OrderLine(name=str(i["name"])[:300], qty=i.get("qty") or 1, url=str(i["url"]), price=i.get("price"))
+                        for i in o["items"]])
+                except ValueError:
+                    raise HTTPException(422, f"Order {o['order_ref']} has something Press can't read (a quantity or price?).")
+                r = await run_in_threadpool(import_order, o["store"], order)
+                result["orders"].append({**r, "store": o["store"]})
+                result["products"] += r["products"]
+                result["new_common_items"] += r["new_common_items"]
+                result["already_imported"] += int(r["already_imported"])
+        elif kind == "basket":
+            if not found["store"]:
+                raise HTTPException(422, "Which store is that basket from? Pick Tesco or Dunnes.")
+            result = await run_in_threadpool(check_basket, found["store"], BasketResults(text=raw.decode("utf-8-sig")))
+        else:
+            added = []
+            for line in found["items"]:
+                known = db.rows("SELECT 1 FROM catalog WHERE lower(name) = lower(?)", (line["name"],))
+                item = NewListItem(name=line["name"], qty=line["qty"], category=None if known else guess(line["name"]))
+                added.append(await run_in_threadpool(add_to_list, item))
+            result = {"added": len(added), "names": [i["name"] for i in added]}
+        return {"kind": kind, "applied": True, "result": result}
 
     def keep_upload(raw: bytes) -> str:
         """Keep the file exactly as uploaded, next to the database, so nothing in it is ever lost."""
